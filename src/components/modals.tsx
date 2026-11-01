@@ -462,6 +462,7 @@ export function MenuModal({
 }) {
   const [name, setName] = useState(product?.name || "");
   const [price, setPrice] = useState(product ? String(product.price) : "");
+  const [imageUrl, setImageUrl] = useState(product?.imageUrl || "");
   const [source, setSource] = useState<"recipe" | "direct">(
     product?.recipeId ? "recipe" : "direct",
   );
@@ -483,6 +484,35 @@ export function MenuModal({
   const [error, setError] = useState("");
 
   const selectedRecipe = recipes.find((recipe) => recipe.id === recipeId);
+
+  const selectPhoto = (file?: File) => {
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      setError("Pilih file gambar.");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const image = new Image();
+      image.onload = () => {
+        const longestSide = 640;
+        const ratio = Math.min(1, longestSide / Math.max(image.width, image.height));
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.round(image.width * ratio);
+        canvas.height = Math.round(image.height * ratio);
+        canvas.getContext("2d")?.drawImage(image, 0, 0, canvas.width, canvas.height);
+        const compressed = canvas.toDataURL("image/webp", 0.68);
+        if (compressed.length > 260_000) {
+          setError("Foto terlalu besar. Pilih foto lain yang lebih sederhana.");
+          return;
+        }
+        setImageUrl(compressed);
+        setError("");
+      };
+      image.src = String(reader.result);
+    };
+    reader.readAsDataURL(file);
+  };
 
   const selectIngredient = (id: string) => {
     const stock = stocks.find((item) => item.id === id);
@@ -555,6 +585,7 @@ export function MenuModal({
       id: product?.id || crypto.randomUUID(),
       name: name.trim(),
       price: p,
+      imageUrl: imageUrl.trim() || undefined,
       recipeId: source === "recipe" ? recipeId : undefined,
       recipePortions: source === "recipe" ? portions : undefined,
       ingredients: finalIngredients,
@@ -586,6 +617,24 @@ export function MenuModal({
             placeholder="0"
           />
         </Field>
+        <div>
+          <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Foto menu, opsional</p>
+          <div className="mt-2 flex items-center gap-3 rounded-xl border border-dashed border-line bg-slate-50 p-3">
+            {imageUrl ? (
+              <img src={imageUrl} alt="Pratinjau menu" className="h-16 w-16 rounded-lg object-cover" />
+            ) : (
+              <div className="grid h-16 w-16 place-items-center rounded-lg bg-white text-xs font-bold text-slate-400">Foto</div>
+            )}
+            <div className="min-w-0 flex-1">
+              <label className="inline-flex cursor-pointer rounded-lg bg-white px-3 py-2 text-xs font-bold text-moss shadow-2xs ring-1 ring-line hover:bg-[#edf6f2]">
+                Pilih dari galeri
+                <input type="file" accept="image/*" capture="environment" className="hidden" onChange={(event) => selectPhoto(event.target.files?.[0])} />
+              </label>
+              {imageUrl && <button type="button" onClick={() => setImageUrl("")} className="ml-3 text-xs font-bold text-rose-600">Hapus</button>}
+              <p className="mt-1.5 text-[11px] text-slate-500">Foto diperkecil otomatis sebelum disimpan.</p>
+            </div>
+          </div>
+        </div>
         <div>
           <p className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-500">
             Sumber bahan baku

@@ -223,19 +223,19 @@ export function Dashboard({
         </div>
       )}
 
-      <div className="grid gap-3.5 sm:grid-cols-3 sm:gap-4">
+      <div className="grid grid-cols-3 gap-2.5 sm:gap-4">
         {cards.map((card) => (
           <article
             key={card.label}
-            className="rounded-2xl border border-line bg-white p-4.5 sm:p-5 shadow-2xs"
+            className="min-w-0 rounded-2xl border border-line bg-white p-3 sm:p-5 shadow-2xs"
           >
             <div
-              className={`mb-3.5 grid h-10 w-10 place-items-center rounded-xl ${card.tone}`}
+              className={`mb-2.5 grid h-9 w-9 place-items-center rounded-xl sm:mb-3.5 sm:h-10 sm:w-10 ${card.tone}`}
             >
               <card.icon size={20} />
             </div>
-            <p className="text-xs font-medium text-slate-500 sm:text-sm">{card.label}</p>
-            <p className="mt-1 text-xl font-bold tracking-tight text-ink sm:text-2xl">
+            <p className="min-h-7 text-[10px] font-medium leading-3.5 text-slate-500 sm:min-h-0 sm:text-sm">{card.label}</p>
+            <p className="mt-1 truncate text-sm font-bold tracking-tight text-ink sm:text-2xl">
               {card.value}
             </p>
           </article>
@@ -998,12 +998,12 @@ export function Cashier({
                     }`}
                   >
                     <div className="flex items-start justify-between gap-3">
-                      <div
-                        className={`grid h-10 w-10 place-items-center rounded-xl ${
-                          ready ? "bg-[#edf6f2] text-moss" : "bg-rose-100 text-rose-600"
-                        }`}
-                      >
-                        <ReceiptText size={20} />
+                      <div className={`grid h-16 w-16 shrink-0 place-items-center overflow-hidden rounded-xl ${ready ? "bg-[#edf6f2] text-moss" : "bg-rose-100 text-rose-600"}`}>
+                        {product.imageUrl ? (
+                          <img src={product.imageUrl} alt="" className="h-full w-full object-cover" />
+                        ) : (
+                          <ReceiptText size={22} />
+                        )}
                       </div>
                       {!ready ? (
                         <span className="rounded-full bg-rose-100 px-2 py-0.5 text-[11px] font-bold text-rose-700">

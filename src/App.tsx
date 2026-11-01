@@ -116,7 +116,7 @@ function App() {
     "local" | "connecting" | "online" | "syncing" | "error"
   >(accessCode ? "connecting" : "local");
   const [remoteReady, setRemoteReady] = useState(false);
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
 
   const lastKnownServerUpdatedAt = useRef<string | null>(null);
 
@@ -547,20 +547,12 @@ function App() {
         {/* Sticky Header Responsive */}
         <header className="no-print sticky top-0 z-20 flex h-16 sm:h-18 items-center justify-between border-b border-line bg-[#f8f7f2]/95 px-3.5 sm:px-8 backdrop-blur">
           <div className="flex items-center gap-2 sm:gap-3">
-            <button
-              onClick={() => setMobileMenuOpen(true)}
-              className="lg:hidden rounded-xl border border-line bg-white p-2 text-slate-600 hover:bg-slate-50 active:scale-95 shadow-2xs"
-              title="Menu Navigasi"
-            >
-              <MenuIcon size={20} />
-            </button>
             <div className="hidden sm:block">
               <p className="text-sm font-bold text-ink">
                 {nav.find((n) => n.id === page)?.label || "Dashboard"}
               </p>
               <p className="text-[11px] text-slate-500">Operasional Usaha UMKM</p>
             </div>
-            {/* Mobile Branding */}
             <div className="sm:hidden flex items-center gap-2">
               <span className="font-bold text-sm tracking-tight text-ink">
                 {nav.find((n) => n.id === page)?.label}
@@ -749,96 +741,32 @@ function App() {
         </div>
       </main>
 
-      {/* Mobile Drawer Overlay */}
-      {mobileMenuOpen && (
-        <div
-          onClick={(e) => {
-            if (e.target === e.currentTarget) setMobileMenuOpen(false);
-          }}
-          className="no-print fixed inset-0 z-50 flex bg-slate-950/45 backdrop-blur-xs lg:hidden animate-in fade-in duration-200"
-        >
-          <div className="w-72 max-w-[80vw] bg-white h-full p-5 flex flex-col justify-between shadow-2xl animate-in slide-in-from-left duration-250">
-            <div>
-              <div className="flex items-center justify-between pb-5 border-b border-line">
-                <div className="flex items-center gap-2.5">
-                  <div className="grid h-9 w-9 place-items-center rounded-xl overflow-hidden bg-moss text-white">
-                    {APP_CONFIG.logo ? (
-                      <img src={APP_CONFIG.logo} alt={APP_CONFIG.name} className="h-full w-full object-cover" />
-                    ) : (
-                      <ShoppingBasket size={18} />
-                    )}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="font-bold text-sm text-ink truncate">{APP_CONFIG.name}</p>
-                    <p className="text-[10px] text-slate-400 truncate">{APP_CONFIG.tagline}</p>
-                  </div>
-                </div>
-                <button
-                  onClick={() => setMobileMenuOpen(false)}
-                  className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100"
-                >
-                  <X size={19} />
-                </button>
-              </div>
+      <nav className="no-print fixed inset-x-3 bottom-3 z-30 grid h-15 grid-cols-5 items-center rounded-2xl bg-[#182421] px-1 text-white shadow-2xl lg:hidden">
+        {["dashboard", "stock"].map((id) => {
+          const item = nav.find((entry) => entry.id === id)!;
+          const active = page === item.id;
+          return <button key={item.id} onClick={() => setPage(item.id)} className={`relative grid justify-items-center gap-0.5 text-[9px] font-semibold ${active ? "text-white" : "text-white/55"}`}><item.icon size={18} /><span>{item.label.split(" ")[0]}</span>{item.id === "stock" && lowStock.length > 0 && <span className="absolute right-5 top-0 h-1.5 w-1.5 rounded-full bg-rose-400" />}</button>;
+        })}
+        <button onClick={() => setPage("cashier")} className="relative -top-5 grid h-15 w-15 justify-self-center place-items-center rounded-full border-4 border-[#f8f7f2] bg-moss text-white shadow-lg active:scale-95" title="Kasir"><ShoppingBasket size={23} /></button>
+        {["menu"].map((id) => {
+          const item = nav.find((entry) => entry.id === id)!;
+          const active = page === item.id;
+          return <button key={item.id} onClick={() => setPage(item.id)} className={`grid justify-items-center gap-0.5 text-[9px] font-semibold ${active ? "text-white" : "text-white/55"}`}><item.icon size={18} /><span>Menu</span></button>;
+        })}
+        <button onClick={() => setMobileMoreOpen(true)} className="grid justify-items-center gap-0.5 text-[9px] font-semibold text-white/55"><MenuIcon size={18} /><span>Lainnya</span></button>
+      </nav>
 
-              <nav className="mt-4 space-y-1">
-                {nav.map((item) => (
-                  <NavItem
-                    key={item.id}
-                    item={item}
-                    active={page === item.id}
-                    onClick={() => {
-                      setPage(item.id);
-                      setMobileMenuOpen(false);
-                    }}
-                  />
-                ))}
-              </nav>
-            </div>
-
-            <div className="rounded-2xl bg-[#edf6f2] p-4 border border-moss/15">
-              <p className="text-xs font-bold text-moss">Multi-HP Supabase</p>
-              <p className="mt-1 text-[11px] leading-relaxed text-slate-600">
-                {accessCode
-                  ? `Kode Toko: ${accessCode}`
-                  : "Belum tersambung ke HP lain."}
-              </p>
-              <button
-                onClick={() => {
-                  setMobileMenuOpen(false);
-                  setModal("connection");
-                }}
-                className="mt-2 text-xs font-bold text-moss underline"
-              >
-                {accessCode ? "Ubah Kode" : "Sambungkan HP"}
-              </button>
+      {mobileMoreOpen && (
+        <div onClick={(event) => event.target === event.currentTarget && setMobileMoreOpen(false)} className="no-print fixed inset-0 z-50 flex items-end bg-slate-950/40 p-3 lg:hidden">
+          <div className="w-full rounded-3xl bg-white p-4 shadow-2xl">
+            <div className="mx-auto mb-4 h-1.5 w-10 rounded-full bg-slate-200" />
+            <div className="grid grid-cols-2 gap-3">
+              {["finance", "report"].map((id) => { const item = nav.find((entry) => entry.id === id)!; return <button key={item.id} onClick={() => { setPage(item.id); setMobileMoreOpen(false); }} className="flex items-center gap-3 rounded-2xl bg-slate-50 p-4 text-left text-sm font-bold text-ink"><item.icon size={20} className="text-moss" />{item.label}</button>; })}
+              <button onClick={() => { setMobileMoreOpen(false); setModal("connection"); }} className="col-span-2 flex items-center gap-3 rounded-2xl bg-[#edf6f2] p-4 text-left text-sm font-bold text-moss"><Smartphone size={20} />Sinkron antar perangkat</button>
             </div>
           </div>
         </div>
       )}
-
-      {/* Bottom Navigation Mobile Responsive (Semua 6 Menu Mudah Diakses) */}
-      <nav className="no-print fixed inset-x-0 bottom-0 z-30 flex justify-around border-t border-line bg-white/95 px-1 py-1.5 backdrop-blur lg:hidden safe-area-pb shadow-lg">
-        {nav.map((item) => {
-          const isActive = page === item.id;
-          const isStock = item.id === "stock";
-          return (
-            <button
-              key={item.id}
-              onClick={() => setPage(item.id)}
-              className={`relative flex min-w-12 flex-col items-center gap-0.5 rounded-xl px-2 py-1 text-[10px] font-bold transition active:scale-95 ${
-                isActive ? "text-moss bg-[#edf6f2]/80" : "text-slate-500 hover:text-ink"
-              }`}
-            >
-              <item.icon size={19} className={isActive ? "text-moss" : "text-slate-500"} />
-              <span className="truncate max-w-14">{item.label.split(" ")[0]}</span>
-              {isStock && lowStock.length > 0 && (
-                <span className="absolute right-2 top-1 h-2 w-2 rounded-full bg-rose-500" />
-              )}
-            </button>
-          );
-        })}
-      </nav>
 
       {/* Modals Dialog */}
       {modal === "stock" && (

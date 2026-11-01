@@ -7,7 +7,7 @@ export type Ingredient = { stockId: string; quantity: number; unit?: "gram" | "k
 export type State = {
   stocks: Array<{ id: string; name: string; quantity: number; unit: "kg" | "gram" | "pcs"; buyPrice: number; minimum: number; updatedAt: string }>;
   recipes: Array<{ id: string; name: string; category: "Makanan" | "Minuman"; ingredients: Ingredient[] }>;
-  products: Array<{ id: string; name: string; price: number; ingredients: Ingredient[]; recipeId?: string; recipePortions?: number }>;
+  products: Array<{ id: string; name: string; price: number; imageUrl?: string; ingredients: Ingredient[]; recipeId?: string; recipePortions?: number }>;
   transactions: Array<{ id: string; date: string; type: "income" | "expense"; title: string; amount: number; method: string }>;
   demoData: boolean;
 };
@@ -22,7 +22,7 @@ export const pool = databaseUrl ? new Pool({
 }) : null;
 
 export const app = express();
-app.use(express.json({ limit: "2mb" }));
+app.use(express.json({ limit: "5mb" }));
 
 const validCode = (code: string) => /^[A-Z0-9]{6,12}$/.test(code);
 const asNumber = (value: unknown) => Number(value) || 0;
@@ -68,7 +68,7 @@ export async function ensureTables() {
         CREATE TABLE IF NOT EXISTS menu_items (
           store_code VARCHAR(12) NOT NULL REFERENCES app_stores(access_code) ON DELETE CASCADE,
           id TEXT NOT NULL, name TEXT NOT NULL,
-          price NUMERIC NOT NULL CHECK (price >= 0), recipe_id TEXT, recipe_portions NUMERIC,
+          price NUMERIC NOT NULL CHECK (price >= 0), image_url TEXT, recipe_id TEXT, recipe_portions NUMERIC,
           PRIMARY KEY (store_code, id),
           FOREIGN KEY (store_code, recipe_id) REFERENCES recipes(store_code, id) ON DELETE SET NULL
         );
@@ -95,6 +95,7 @@ export async function ensureTables() {
           ALTER TABLE recipe_ingredients ADD CONSTRAINT recipe_ingredients_quantity_check CHECK (quantity >= 0);
           ALTER TABLE menu_ingredients DROP CONSTRAINT IF EXISTS menu_ingredients_quantity_check;
           ALTER TABLE menu_ingredients ADD CONSTRAINT menu_ingredients_quantity_check CHECK (quantity >= 0);
+          ALTER TABLE menu_items ADD COLUMN IF NOT EXISTS image_url TEXT;
         `);
       } catch {
         // Constraints already applied
@@ -149,8 +150,8 @@ async function writeState(client: PoolClient, code: string, state: State) {
 
   for (const product of state.products) {
     const recipeId = product.recipeId && validRecipeIds.has(product.recipeId) ? product.recipeId : null;
-    await client.query(`INSERT INTO menu_items (store_code, id, name, price, recipe_id, recipe_portions) VALUES ($1, $2, $3, $4, $5, $6)`,
-      [code, product.id, product.name, Math.max(0, asNumber(product.price)), recipeId, product.recipePortions || null]);
+    await client.query(`INSERT INTO menu_items (store_code, id, name, price, image_url, recipe_id, recipe_portions) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [code, product.id, product.name, Math.max(0, asNumber(product.price)), product.imageUrl || null, recipeId, product.recipePortions || null]);
   }
 
   for (const product of state.products) {
@@ -210,7 +211,7 @@ async function readState(client: Pool | PoolClient, code: string) {
     state: {
       stocks: stocks.rows.map((stock) => ({ id: stock.id, name: stock.name, quantity: asNumber(stock.quantity), unit: stock.unit, buyPrice: asNumber(stock.buy_price), minimum: asNumber(stock.minimum_quantity), updatedAt: stock.updated_label })),
       recipes: recipes.rows.map((recipe) => ({ id: recipe.id, name: recipe.name, category: recipe.category, ingredients: recipeParts.get(recipe.id) || [] })),
-      products: products.rows.map((product) => ({ id: product.id, name: product.name, price: asNumber(product.price), recipeId: product.recipe_id || undefined, recipePortions: product.recipe_portions ? asNumber(product.recipe_portions) : undefined, ingredients: menuParts.get(product.id) || [] })),
+      products: products.rows.map((product) => ({ id: product.id, name: product.name, price: asNumber(product.price), imageUrl: product.image_url || undefined, recipeId: product.recipe_id || undefined, recipePortions: product.recipe_portions ? asNumber(product.recipe_portions) : undefined, ingredients: menuParts.get(product.id) || [] })),
       transactions: transactions.rows.map((transaction) => ({ id: transaction.id, date: new Date(transaction.transaction_date).toISOString().slice(0, 10), type: transaction.type, title: transaction.title, amount: asNumber(transaction.amount), method: transaction.method })),
       demoData: store.rows[0].demo_data,
     } satisfies State,
