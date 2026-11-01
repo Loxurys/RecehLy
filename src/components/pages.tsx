@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
   ArrowDownToLine,
   ArrowUpRight,
@@ -32,35 +32,160 @@ import {
 } from "../lib/app-data";
 import { Button, Title } from "./ui";
 
+type SalesRange = "day" | "week" | "month" | "year" | "all";
+type SalesPoint = { key: string; label: string; value: number };
+
+const dayKey = (date: Date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
+const dateFromTransaction = (transaction: Transaction) => {
+  const [year, month, day] = transaction.date.split("-").map(Number);
+  return new Date(year, month - 1, day);
+};
+
+const startOfDay = (date: Date) =>
+  new Date(date.getFullYear(), date.getMonth(), date.getDate());
+
+const makeDayPoints = (from: Date, count: number): SalesPoint[] =>
+  Array.from({ length: count }, (_, index) => {
+    const date = new Date(from);
+    date.setDate(from.getDate() + index);
+    return {
+      key: dayKey(date),
+      label:
+        count <= 7
+          ? new Intl.DateTimeFormat("id-ID", { weekday: "short" }).format(date)
+          : new Intl.DateTimeFormat("id-ID", { day: "numeric", month: "short" }).format(date),
+      value: 0,
+    };
+  });
+
+const makeMonthPoints = (from: Date, count: number): SalesPoint[] =>
+  Array.from({ length: count }, (_, index) => {
+    const date = new Date(from.getFullYear(), from.getMonth() + index, 1);
+    return {
+      key: `${date.getFullYear()}-${date.getMonth()}`,
+      label: new Intl.DateTimeFormat("id-ID", { month: "short" }).format(date),
+      value: 0,
+    };
+  });
+
+function salesPoints(transactions: Transaction[], range: SalesRange) {
+  const today = startOfDay(new Date());
+  let points: SalesPoint[];
+  let allUsesMonths = true;
+  if (range === "day") points = makeDayPoints(today, 1);
+  else if (range === "week") {
+    const from = new Date(today);
+    from.setDate(today.getDate() - 6);
+    points = makeDayPoints(from, 7);
+  } else if (range === "month") {
+    const from = new Date(today);
+    from.setDate(today.getDate() - 29);
+    points = makeDayPoints(from, 30);
+  } else if (range === "year") {
+    const from = new Date(today.getFullYear(), today.getMonth() - 11, 1);
+    points = makeMonthPoints(from, 12);
+  } else {
+    const sales = transactions.filter((transaction) => transaction.type === "income");
+    const earliest = sales.length
+      ? sales.reduce((oldest, transaction) => {
+          const date = dateFromTransaction(transaction);
+          return date < oldest ? date : oldest;
+        }, dateFromTransaction(sales[0]))
+      : today;
+    const months =
+      (today.getFullYear() - earliest.getFullYear()) * 12 +
+      today.getMonth() -
+      earliest.getMonth() +
+      1;
+    if (months <= 12) {
+      points = makeMonthPoints(
+        new Date(earliest.getFullYear(), earliest.getMonth(), 1),
+        months,
+      );
+    } else {
+      allUsesMonths = false;
+      points = Array.from(
+        { length: today.getFullYear() - earliest.getFullYear() + 1 },
+        (_, index) => ({
+          key: String(earliest.getFullYear() + index),
+          label: String(earliest.getFullYear() + index),
+          value: 0,
+        }),
+      );
+    }
+  }
+
+  const pointMap = new Map(points.map((point) => [point.key, point]));
+  for (const transaction of transactions) {
+    if (transaction.type !== "income") continue;
+    const date = dateFromTransaction(transaction);
+    const key =
+      range === "year" || (range === "all" && allUsesMonths)
+        ? `${date.getFullYear()}-${date.getMonth()}`
+        : range === "all" && !allUsesMonths
+          ? String(date.getFullYear())
+          : dayKey(date);
+    const point = pointMap.get(key);
+    if (point) point.value += transaction.amount;
+  }
+  return points;
+}
+
+const rangeLabels: Record<SalesRange, string> = {
+  day: "1H",
+  week: "7H",
+  month: "1B",
+  year: "1TH",
+  all: "Semua",
+};
+
 export function Dashboard({
-  income,
-  expense,
   lowStock,
   transactions,
   setPage,
 }: {
-  income: number;
-  expense: number;
   lowStock: Stock[];
   transactions: Transaction[];
   setPage: (page: Page) => void;
 }) {
+  const [range, setRange] = useState<SalesRange>("week");
+  const points = useMemo(() => salesPoints(transactions, range), [range, transactions]);
+  const today = dayKey(new Date());
+  const todayIncome = transactions
+    .filter((transaction) => transaction.type === "income" && transaction.date === today)
+    .reduce((total, transaction) => total + transaction.amount, 0);
+  const todayExpense = transactions
+    .filter((transaction) => transaction.type === "expense" && transaction.date === today)
+    .reduce((total, transaction) => total + transaction.amount, 0);
+  const totalIncome = transactions
+    .filter((transaction) => transaction.type === "income")
+    .reduce((total, transaction) => total + transaction.amount, 0);
+  const totalExpense = transactions
+    .filter((transaction) => transaction.type === "expense")
+    .reduce((total, transaction) => total + transaction.amount, 0);
+  const rangeSales = points.reduce((total, point) => total + point.value, 0);
   const cards = [
     {
       label: "Pemasukan hari ini",
-      value: rupiah(income),
+      value: rupiah(todayIncome),
       icon: ArrowUpRight,
       tone: "bg-emerald-50 text-emerald-700",
     },
     {
       label: "Pengeluaran hari ini",
-      value: rupiah(expense),
+      value: rupiah(todayExpense),
       icon: ArrowDownToLine,
       tone: "bg-rose-50 text-rose-700",
     },
     {
       label: "Saldo kas usaha",
-      value: rupiah(income - expense),
+      value: rupiah(totalIncome - totalExpense),
       icon: Wallet,
       tone: "bg-blue-50 text-blue-700",
     },
@@ -121,25 +246,24 @@ export function Dashboard({
         <section className="rounded-2xl border border-line bg-white p-5 sm:p-6 shadow-2xs">
           <div className="mb-5 flex items-center justify-between">
             <div>
-              <h2 className="font-bold text-ink sm:text-base">Grafik Penjualan 7 Hari</h2>
+              <h2 className="font-bold text-ink sm:text-base">Grafik penjualan</h2>
               <p className="mt-0.5 text-xs text-slate-500">
-                Aktivitas transaksi penjualan dari kasir
+                {rangeLabels[range]} · {rupiah(rangeSales)} pemasukan kasir
               </p>
             </div>
-            <span className="rounded-lg bg-emerald-50 px-2.5 py-1 text-xs font-bold text-emerald-700">
-              Aktif
-            </span>
+            <div className="flex rounded-lg border border-line bg-slate-50 p-0.5 text-[11px] font-bold text-slate-500">
+              {(Object.keys(rangeLabels) as SalesRange[]).map((item) => (
+                <button
+                  key={item}
+                  onClick={() => setRange(item)}
+                  className={`rounded-md px-2 py-1.5 transition sm:px-2.5 ${range === item ? "bg-white text-moss shadow-2xs" : "hover:text-ink"}`}
+                >
+                  {rangeLabels[item]}
+                </button>
+              ))}
+            </div>
           </div>
-          <MiniChart />
-          <div className="mt-4 flex justify-between border-t border-line pt-3 text-[11px] font-medium text-slate-400">
-            <span>Sen</span>
-            <span>Sel</span>
-            <span>Rab</span>
-            <span>Kam</span>
-            <span>Jum</span>
-            <span>Sab</span>
-            <span className="font-bold text-moss">Hari ini</span>
-          </div>
+          <MiniChart points={points} />
         </section>
 
         <section className="rounded-2xl border border-line bg-white p-5 sm:p-6 shadow-2xs">
@@ -214,21 +338,28 @@ export function Dashboard({
   );
 }
 
-export function MiniChart() {
-  const bars = [42, 65, 38, 80, 55, 92, 70];
+export function MiniChart({ points }: { points: SalesPoint[] }) {
+  const max = Math.max(...points.map((point) => point.value), 1);
+  const labels = points.length <= 3
+    ? points
+    : [points[0], points[Math.floor(points.length / 2)], points[points.length - 1]];
   return (
-    <div className="flex h-36 items-end gap-2.5 pt-4 sm:h-40 sm:gap-3">
-      {bars.map((h, i) => (
-        <div key={i} className="group flex h-full flex-1 flex-col justify-end">
+    <>
+      <div className="flex h-36 items-end gap-1 pt-4 sm:h-40 sm:gap-1.5">
+      {points.map((point) => (
+        <div key={point.key} className="group flex h-full min-w-0 flex-1 flex-col justify-end">
           <div
-            style={{ height: `${h}%` }}
-            className={`w-full rounded-t-lg transition ${
-              i === 6 ? "bg-moss" : "bg-[#dcebe5] group-hover:bg-[#a9d5c6]"
-            }`}
+            title={`${point.label}: ${rupiah(point.value)}`}
+            style={{ height: point.value ? `${Math.max((point.value / max) * 100, 5)}%` : "3px" }}
+            className="w-full rounded-t-md bg-[#dcebe5] transition group-hover:bg-moss"
           />
         </div>
       ))}
-    </div>
+      </div>
+      <div className="mt-4 flex justify-between border-t border-line pt-3 text-[11px] font-medium text-slate-400">
+        {labels.map((point) => <span key={point.key}>{point.label}</span>)}
+      </div>
+    </>
   );
 }
 
@@ -687,14 +818,24 @@ export function Cashier({
   const [method, setMethod] = useState("Tunai");
   const [search, setSearch] = useState("");
   const [showMobileCart, setShowMobileCart] = useState(false);
+  const [menuFilter, setMenuFilter] = useState<"all" | "recipe" | "direct">("all");
+  const drawerTouchStart = useRef<number | null>(null);
+  const cartTouchStart = useRef<number | null>(null);
 
   const canFulfill = (p: Product) =>
-    p.ingredients.every((i) => {
+    p.ingredients.length > 0 && p.ingredients.every((i) => {
       const s = stocks.find((st) => st.id === i.stockId);
       return s && grams(s) >= usedStockUnits(i, s);
     });
 
   const cartTotalQty = cart.reduce((sum, item) => sum + item.quantity, 0);
+  const visibleProducts = products.filter((product) => {
+    const matchesSearch = product.name.toLowerCase().includes(search.toLowerCase());
+    const matchesFilter =
+      menuFilter === "all" ||
+      (menuFilter === "recipe" ? Boolean(product.recipeId) : !product.recipeId);
+    return matchesSearch && matchesFilter;
+  });
 
   const renderCartContent = (isMobileDrawer = false) => (
     <div>
@@ -806,28 +947,41 @@ export function Cashier({
   return (
     <>
       <Title
-        title="Kasir Penjualan"
-        desc="Pilih menu pesanan, stok bahan otomatis terpotong saat dibayar."
+        title="Kasir"
+        desc="Pilih menu, cek pesanan, lalu selesaikan pembayaran."
       />
 
-      <div className="grid gap-6 xl:grid-cols-[1.45fr_0.85fr]">
-        <section>
-          <div className="mb-4 flex items-center gap-2 rounded-xl border border-line bg-white px-3.5 py-1.5 shadow-2xs">
-            <Search size={18} className="text-slate-400" />
-            <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Cari menu pesanan..."
-              className="w-full bg-transparent py-2 text-sm outline-none placeholder:text-slate-400"
-            />
+      <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_22rem]">
+        <section className="min-w-0">
+          <div className="mb-5 rounded-2xl border border-line bg-white p-3 shadow-2xs sm:p-4">
+            <div className="flex items-center gap-2 rounded-xl bg-slate-50 px-3.5 py-2.5 ring-1 ring-transparent focus-within:bg-white focus-within:ring-moss/30">
+              <Search size={18} className="shrink-0 text-slate-400" />
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Cari menu..."
+                className="w-full bg-transparent text-sm outline-none placeholder:text-slate-400"
+              />
+            </div>
+            <div className="mt-3 flex gap-2 overflow-x-auto pb-0.5">
+              {[
+                ["all", "Semua menu"],
+                ["recipe", "Pakai resep"],
+                ["direct", "Racik sendiri"],
+              ].map(([id, label]) => (
+                <button
+                  key={id}
+                  onClick={() => setMenuFilter(id as typeof menuFilter)}
+                  className={`shrink-0 rounded-full px-3.5 py-2 text-xs font-bold transition ${menuFilter === id ? "bg-moss text-white shadow-sm" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
           </div>
 
-          <div className="grid gap-3.5 sm:grid-cols-2">
-            {products
-              .filter((p) =>
-                p.name.toLowerCase().includes(search.toLowerCase()),
-              )
-              .map((product) => {
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-2 2xl:grid-cols-3">
+            {visibleProducts.map((product) => {
                 const ready = canFulfill(product);
                 const inCart = cart.find((c) => c.product.id === product.id);
                 return (
@@ -835,15 +989,15 @@ export function Cashier({
                     key={product.id}
                     disabled={!ready}
                     onClick={() => ready && onAdd(product)}
-                    className={`relative rounded-2xl border bg-white p-4.5 text-left transition active:scale-[0.98] ${
+                    className={`group relative min-h-40 rounded-2xl border bg-white p-4 text-left transition active:scale-[0.98] ${
                       ready
                         ? inCart
-                          ? "border-moss bg-[#f4faf7] shadow-sm ring-1 ring-moss"
-                          : "border-line hover:-translate-y-0.5 hover:border-moss hover:shadow-md"
-                        : "border-rose-200 bg-rose-50/25 opacity-70 cursor-not-allowed"
+                          ? "border-moss bg-[#f5faf7] shadow-sm ring-1 ring-moss"
+                          : "border-line hover:-translate-y-0.5 hover:border-moss/60 hover:shadow-md"
+                        : "border-rose-200 bg-rose-50/30 opacity-70 cursor-not-allowed"
                     }`}
                   >
-                    <div className="flex items-start justify-between">
+                    <div className="flex items-start justify-between gap-3">
                       <div
                         className={`grid h-10 w-10 place-items-center rounded-xl ${
                           ready ? "bg-[#edf6f2] text-moss" : "bg-rose-100 text-rose-600"
@@ -856,23 +1010,31 @@ export function Cashier({
                           Bahan kurang
                         </span>
                       ) : inCart ? (
-                        <span className="rounded-full bg-moss px-2.5 py-0.5 text-xs font-bold text-white shadow-xs">
-                          {inCart.quantity} di keranjang
+                        <span className="rounded-full bg-moss px-2.5 py-1 text-[11px] font-bold text-white shadow-xs">
+                          {inCart.quantity} dipilih
                         </span>
                       ) : null}
                     </div>
-                    <p className="mt-4 font-bold text-ink">{product.name}</p>
-                    <p className="mt-0.5 text-base font-bold text-moss">
-                      {rupiah(product.price)}
-                    </p>
+                    <div className="mt-5">
+                      <p className="truncate font-bold text-ink">{product.name}</p>
+                      <p className="mt-1 text-base font-extrabold text-moss">{rupiah(product.price)}</p>
+                    </div>
+                    <div className="absolute inset-x-4 bottom-3 flex items-center justify-between border-t border-line pt-3 text-[11px] font-semibold">
+                      <span className="text-slate-400">{product.ingredients.length} bahan</span>
+                      <span className={ready ? "text-moss" : "text-rose-600"}>{ready ? "Tambah" : "Stok kurang"}</span>
+                    </div>
                   </button>
                 );
               })}
+            {visibleProducts.length === 0 && (
+              <div className="col-span-full rounded-2xl border border-dashed border-line bg-white px-5 py-12 text-center text-sm text-slate-500">
+                Menu tidak ditemukan.
+              </div>
+            )}
           </div>
         </section>
 
-        {/* Desktop Order Panel */}
-        <section className="hidden xl:block h-fit rounded-2xl border border-line bg-white p-5 sm:p-6 shadow-2xs">
+        <section className="hidden h-fit rounded-2xl border border-line bg-white p-5 shadow-2xs xl:sticky xl:top-22 xl:block">
           {renderCartContent(false)}
         </section>
       </div>
@@ -882,6 +1044,15 @@ export function Cashier({
         <div className="fixed bottom-16 inset-x-3 z-30 xl:hidden">
           <button
             onClick={() => setShowMobileCart(true)}
+            onTouchStart={(event) => {
+              cartTouchStart.current = event.touches[0].clientY;
+            }}
+            onTouchEnd={(event) => {
+              if (cartTouchStart.current && cartTouchStart.current - event.changedTouches[0].clientY > 35) {
+                setShowMobileCart(true);
+              }
+              cartTouchStart.current = null;
+            }}
             className="flex w-full items-center justify-between rounded-2xl bg-moss px-4.5 py-3 text-white shadow-xl transition active:scale-[0.98] animate-in fade-in slide-in-from-bottom-2"
           >
             <div className="flex items-center gap-2.5">
@@ -894,7 +1065,7 @@ export function Cashier({
               </div>
             </div>
             <span className="rounded-xl bg-white/20 px-3 py-1.5 text-xs font-bold">
-              Lihat & Bayar →
+              Tarik atau buka
             </span>
           </button>
         </div>
@@ -908,7 +1079,18 @@ export function Cashier({
           }}
           className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/45 p-0 backdrop-blur-xs xl:hidden"
         >
-          <div className="max-h-[85vh] w-full overflow-y-auto rounded-t-3xl bg-white p-5 shadow-2xl animate-in slide-in-from-bottom duration-200">
+          <div
+            onTouchStart={(event) => {
+              drawerTouchStart.current = event.touches[0].clientY;
+            }}
+            onTouchEnd={(event) => {
+              if (drawerTouchStart.current && event.changedTouches[0].clientY - drawerTouchStart.current > 70) {
+                setShowMobileCart(false);
+              }
+              drawerTouchStart.current = null;
+            }}
+            className="max-h-[85vh] w-full overflow-y-auto rounded-t-3xl bg-white p-5 shadow-2xl animate-in slide-in-from-bottom duration-200"
+          >
             <div className="mx-auto mb-3 h-1.5 w-12 rounded-full bg-slate-200" />
             {renderCartContent(true)}
           </div>

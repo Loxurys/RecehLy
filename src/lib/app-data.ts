@@ -175,10 +175,20 @@ export const initialProducts: Product[] = [
     ],
   },
 ];
+
+const sampleDate = (daysAgo: number) => {
+  const date = new Date();
+  date.setDate(date.getDate() - daysAgo);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
 export const initialTransactions: Transaction[] = [
   {
     id: "t1",
-    date: "2026-10-19",
+    date: sampleDate(0),
     type: "income",
     title: "Penjualan menu 1",
     amount: 60000,
@@ -186,7 +196,7 @@ export const initialTransactions: Transaction[] = [
   },
   {
     id: "t2",
-    date: "2026-10-19",
+    date: sampleDate(0),
     type: "income",
     title: "Penjualan menu 3",
     amount: 42000,
@@ -194,7 +204,7 @@ export const initialTransactions: Transaction[] = [
   },
   {
     id: "t3",
-    date: "2026-10-19",
+    date: sampleDate(2),
     type: "expense",
     title: "Belanja bahan",
     amount: 178000,
@@ -202,7 +212,7 @@ export const initialTransactions: Transaction[] = [
   },
   {
     id: "t4",
-    date: "2026-10-18",
+    date: sampleDate(4),
     type: "income",
     title: "Penjualan menu 2",
     amount: 100000,

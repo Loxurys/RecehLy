@@ -62,7 +62,7 @@ import {
 
 
 export const APP_CONFIG = {
-  name: "NAMA TOKO", 
+  name: "ini_nama",
   tagline: "Dashboard Kasir & Stok",
   logo: "/favicon.svg",
 };
@@ -395,6 +395,7 @@ function App() {
   );
 
   const canFulfill = (item: CartItem) =>
+    productIngredients(item.product).length > 0 &&
     productIngredients(item.product).every((ingredient) => {
       const stock = stocks.find((s) => s.id === ingredient.stockId);
       return (
@@ -646,8 +647,6 @@ function App() {
         <div className="mx-auto w-full max-w-7xl flex-1 p-3.5 pb-24 sm:p-6 lg:p-8 lg:pb-8">
           {page === "dashboard" && (
             <Dashboard
-              income={income}
-              expense={expense}
               lowStock={lowStock}
               transactions={transactions}
               setPage={setPage}
@@ -665,13 +664,29 @@ function App() {
                 setEditStockTarget(stock);
                 setModal("edit-stock");
               }}
-              onDelete={(stock) =>
+              onDelete={(stock) => {
+                const usedInMenu = products.some((product) =>
+                  product.ingredients.some(
+                    (ingredient) => ingredient.stockId === stock.id,
+                  ),
+                );
+                const usedInRecipe = recipes.some((recipe) =>
+                  recipe.ingredients.some(
+                    (ingredient) => ingredient.stockId === stock.id,
+                  ),
+                );
+                if (usedInMenu || usedInRecipe) {
+                  showToast(
+                    "Bahan masih dipakai menu atau resep. Hapus pemakaiannya dulu.",
+                  );
+                  return;
+                }
                 setDeleteTarget({
                   type: "stock",
                   id: stock.id,
                   name: stock.name,
-                })
-              }
+                });
+              }}
             />
           )}
           {page === "menu" && (

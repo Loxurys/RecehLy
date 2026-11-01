@@ -275,12 +275,16 @@ apiRouter.post("/state/:code/checkout", requireDatabase, async (request, respons
     const menuRows = await client.query(`SELECT menu.id, menu.name, menu.price, ingredient.stock_id, ingredient.quantity, ingredient.unit
       FROM menu_items menu LEFT JOIN menu_ingredients ingredient ON ingredient.store_code = menu.store_code AND ingredient.menu_id = menu.id
       WHERE menu.store_code = $1 AND menu.id = ANY($2::text[])`, [code, [...selected.keys()]]);
-    const names = new Map<string, string>(); const prices = new Map<string, number>(); const required = new Map<string, number>();
+    const names = new Map<string, string>(); const prices = new Map<string, number>(); const required = new Map<string, number>(); const menusWithIngredients = new Set<string>();
     for (const row of menuRows.rows) {
       const count = selected.get(row.id)!; names.set(row.id, row.name); prices.set(row.id, asNumber(row.price));
-      if (row.stock_id) required.set(row.stock_id, (required.get(row.stock_id) || 0) + ingredientBaseUnit(asNumber(row.quantity), row.unit) * count);
+      if (row.stock_id) {
+        menusWithIngredients.add(row.id);
+        required.set(row.stock_id, (required.get(row.stock_id) || 0) + ingredientBaseUnit(asNumber(row.quantity), row.unit) * count);
+      }
     }
     if (names.size !== selected.size) throw new Error("Menu tidak ditemukan");
+    if (menusWithIngredients.size !== selected.size) throw new Error("Menu belum punya bahan");
     const stockIds = [...required.keys()];
     const stockRows = stockIds.length ? await client.query(`SELECT id, quantity, unit FROM stock_items WHERE store_code = $1 AND id = ANY($2::text[]) FOR UPDATE`, [code, stockIds]) : { rows: [] as Array<{ id: string; quantity: string; unit: string }> };
     for (const stockId of stockIds) {

@@ -1143,18 +1143,18 @@ export function ConnectionModal({
   };
 
   return (
-    <Modal title="Sinkronisasi Antar HP & Perangkat" onClose={onClose}>
+    <Modal title="Sinkronisasi antar perangkat" onClose={onClose}>
       <form onSubmit={handleSubmit} className="grid gap-4">
         <div className="rounded-xl bg-blue-50/70 p-3.5 text-xs text-blue-900 leading-relaxed">
-          💡 <strong>Cara Pakai:</strong> Masukkan <strong>Kode Toko</strong> yang sama pada HP Kasir, HP Dapur, maupun HP Pemilik. Semua data otomatis tersinkron secara online via database.
+          Pakai kode yang sama di setiap perangkat. Data akan tersimpan dan diperbarui dari database online.
         </div>
-        <Field label="Kode Sinkronisasi (6-12 Karakter)">
+        <Field label="Kode sinkronisasi (6–12 karakter)">
           <input
             value={code}
             onChange={(event) => setCode(normalizeAccessCode(event.target.value))}
             maxLength={12}
             className="font-mono uppercase tracking-[0.2em] font-bold text-center text-lg"
-            placeholder="WARUNG01"
+            placeholder="CONTOH12"
             autoFocus
           />
         </Field>
@@ -1168,17 +1168,17 @@ export function ConnectionModal({
           </button>
           {currentCode && (
             <span className="text-xs font-semibold text-emerald-700">
-              ● Aktif: {currentCode}
+              Aktif: {currentCode}
             </span>
           )}
         </div>
         <div className="flex flex-col gap-2 pt-2 sm:flex-row">
           <Button disabled={!valid || busy} onClick={() => onConnect(code)} full>
-            {busy ? "Menyambungkan..." : currentCode === code ? "Segarkan Koneksi" : "Sambungkan Perangkat"}
+            {busy ? "Menyambungkan..." : currentCode === code ? "Segarkan koneksi" : "Sambungkan perangkat"}
           </Button>
           {currentCode && (
             <Button secondary onClick={onDisconnect} full>
-              Putuskan (Gunakan Offline)
+              Gunakan data perangkat
             </Button>
           )}
         </div>
