@@ -13,10 +13,11 @@ export type Ingredient = {
   quantity: number;
   unit?: IngredientUnit;
 };
+export type RecipeCategory = "Makanan" | "Minuman" | "Saus" | "Komponen";
 export type Recipe = {
   id: string;
   name: string;
-  category: "Makanan" | "Minuman";
+  category: RecipeCategory;
   ingredients: Ingredient[];
 };
 export type Product = {
