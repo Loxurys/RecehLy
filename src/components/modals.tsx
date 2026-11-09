@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { AlertCircle, Check, ImagePlus, Plus, Smartphone, Trash2 } from "lucide-react";
+import { AlertCircle, Banknote, Check, ImagePlus, Plus, QrCode, Smartphone, Trash2 } from "lucide-react";
 import type {
   Ingredient,
   IngredientUnit,
@@ -8,9 +8,202 @@ import type {
   Stock,
   Transaction,
 } from "../lib/app-data";
-import { recipeUnit, rupiah, selectableUnits } from "../lib/app-data";
+import {
+  calculateProductHpp,
+  loadQrisImage,
+  recipeUnit,
+  rupiah,
+  saveQrisImage,
+  selectableUnits,
+} from "../lib/app-data";
 import { makeAccessCode, normalizeAccessCode } from "../lib/remote-store";
 import { Button, Field, Modal } from "./ui";
+
+export function PaymentModal({
+  total,
+  onClose,
+  onConfirm,
+}: {
+  total: number;
+  onClose: () => void;
+  onConfirm: (method: string) => void;
+}) {
+  const [method, setMethod] = useState<"Tunai" | "QRIS">("Tunai");
+  const [customQris] = useState<string>(() => loadQrisImage());
+
+  return (
+    <Modal title="Pembayaran" onClose={onClose}>
+      <div className="grid gap-4">
+        {/* Ringkasan Total Tagihan */}
+        <div className="rounded-2xl bg-slate-50 p-4 text-center">
+          <p className="text-xs font-semibold text-slate-500">Total Tagihan</p>
+          <p className="mt-0.5 text-2xl font-extrabold text-moss">{rupiah(total)}</p>
+        </div>
+
+        {/* Pilihan Metode Pembayaran */}
+        <div>
+          <p className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-500">
+            Pilih Metode Pembayaran
+          </p>
+          <div className="grid grid-cols-2 gap-3">
+            <button
+              type="button"
+              onClick={() => setMethod("Tunai")}
+              className={`flex items-center justify-center gap-2 rounded-xl border p-3 font-bold transition ${
+                method === "Tunai"
+                  ? "border-moss bg-[#edf6f2] text-moss shadow-2xs"
+                  : "border-line bg-white text-slate-600 hover:bg-slate-50"
+              }`}
+            >
+              <Banknote size={18} /> Tunai
+            </button>
+            <button
+              type="button"
+              onClick={() => setMethod("QRIS")}
+              className={`flex items-center justify-center gap-2 rounded-xl border p-3 font-bold transition ${
+                method === "QRIS"
+                  ? "border-moss bg-[#edf6f2] text-moss shadow-2xs"
+                  : "border-line bg-white text-slate-600 hover:bg-slate-50"
+              }`}
+            >
+              <QrCode size={18} /> QRIS
+            </button>
+          </div>
+        </div>
+
+        {/* Tampilan QRIS */}
+        {method === "QRIS" ? (
+          <div className="my-2 flex flex-col items-center justify-center text-center">
+            {/* Teks Petunjuk di Luar Kotak Garis Putus-Putus */}
+            <p className="mb-3 text-xs font-semibold text-slate-600">
+              Pindai QRIS di bawah ini untuk membayarnya
+            </p>
+
+            {/* Kotak Garis Putus-Putus Penuh dengan Gambar QRIS */}
+            <div className="relative flex h-64 w-64 items-center justify-center overflow-hidden rounded-2xl border-2 border-dashed border-line bg-slate-50 p-2">
+              {customQris ? (
+                <img
+                  src={customQris}
+                  alt="QRIS Pembayaran Toko"
+                  className="h-full w-full object-contain rounded-xl"
+                />
+              ) : (
+                <div className="flex flex-col items-center justify-center text-slate-400">
+                  <QrCode size={96} className="opacity-40" />
+                  <span className="mt-2 text-xs font-semibold text-slate-500">
+                    Belum ada gambar QRIS toko
+                  </span>
+                </div>
+              )}
+            </div>
+
+            <p className="mt-3 text-[11px] font-bold text-slate-400">
+              {customQris ? "QRIS Resmi Toko" : "Silakan atur & unggah QRIS toko di tab Menu"}
+            </p>
+          </div>
+        ) : (
+          <div className="rounded-xl bg-slate-50 p-3 text-center text-xs text-slate-500">
+            Terima uang tunai dari pelanggan lalu tekan tombol di bawah untuk menyelesaikan transaksi.
+          </div>
+        )}
+
+        <Button onClick={() => onConfirm(method)} full>
+          {method === "QRIS" ? "Sudah & Selesai" : "Konfirmasi & Selesai"}
+        </Button>
+      </div>
+    </Modal>
+  );
+}
+
+export function QrisUploadSection() {
+  const [qrisUrl, setQrisUrl] = useState<string>(() => loadQrisImage());
+  const [error, setError] = useState<string>("");
+
+  const handleUpload = (file?: File) => {
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      setError("Pilih file gambar yang valid (.jpg, .png, .webp).");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        const maxSide = 600;
+        const ratio = Math.min(1, maxSide / Math.max(img.width, img.height));
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.round(img.width * ratio);
+        canvas.height = Math.round(img.height * ratio);
+        const ctx = canvas.getContext("2d");
+        ctx?.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+        const compressedDataUrl = canvas.toDataURL("image/webp", 0.8);
+        saveQrisImage(compressedDataUrl);
+        setQrisUrl(compressedDataUrl);
+        setError("");
+      };
+      img.src = String(reader.result);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleRemove = () => {
+    saveQrisImage("");
+    setQrisUrl("");
+  };
+
+  return (
+    <div className="mb-6 rounded-2xl border border-line bg-white p-5 shadow-2xs">
+      <h3 className="font-bold text-ink">Upload QRIS Toko</h3>
+      <p className="mt-0.5 text-xs text-slate-500">
+        Unggah gambar QRIS usaha Anda untuk ditampilkan saat pembayaran transaksi kasir.
+      </p>
+
+      {error && (
+        <p className="mt-2 text-xs font-semibold text-rose-600">{error}</p>
+      )}
+
+      <div className="mt-4 flex flex-col items-center gap-4 sm:flex-row">
+        {qrisUrl ? (
+          <div className="relative h-44 w-44 overflow-hidden rounded-xl border border-line bg-slate-50 p-1">
+            <img src={qrisUrl} alt="QRIS Toko" className="h-full w-full object-contain" />
+          </div>
+        ) : (
+          <div className="grid h-44 w-44 place-items-center rounded-xl border border-dashed border-line bg-slate-50 text-slate-400">
+            <div className="text-center">
+              <QrCode size={40} className="mx-auto mb-1 opacity-50" />
+              <span className="text-xs font-semibold">Belum ada QRIS</span>
+            </div>
+          </div>
+        )}
+
+        <div className="flex flex-col gap-2">
+          <label className="inline-flex cursor-pointer items-center justify-center gap-2 rounded-xl bg-moss px-4 py-2.5 text-xs font-bold text-white transition active:scale-95 shadow-2xs">
+            <ImagePlus size={16} />
+            {qrisUrl ? "Ganti Gambar QRIS" : "Pilih File Gambar QRIS"}
+            <input
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={(e) => handleUpload(e.target.files?.[0])}
+            />
+          </label>
+
+          {qrisUrl && (
+            <button
+              type="button"
+              onClick={handleRemove}
+              className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-line bg-white px-4 py-2 text-xs font-bold text-rose-600 hover:bg-rose-50"
+            >
+              <Trash2 size={14} /> Hapus QRIS Toko
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export function StockModal({
   onClose,
@@ -1191,16 +1384,21 @@ export function TutorialModal({ onClose }: { onClose: () => void }) {
       details: ["Buka Stok Bahan", "Tekan Tambah bahan", "Isi jumlah, satuan, harga, dan pengingat"],
     },
     {
-      title: "Buat menu",
-      description: "Pilih resep atau racik sendiri. Foto menu boleh ditambah.",
-      videoFile: "02-buat-menu-480p24.mp4",
-      details: ["Buka Menu & Resep", "Tekan Buat menu baru", "Pilih foto dari galeri bila diperlukan", "Atur bahan atau pilih resep"],
+      title: "Buat bahan dasar",
+      description: "Racikan dasar untuk memudahkan pembuatan porsi menu seragam.",
+      videoFile: "02-buat-bahan-dasar-480p24.mp4",
+      details: [
+        "Buka Menu & Resep",
+        "Pilih tab Bahan Dasar",
+        "Tekan Buat resep baru",
+        "Masukkan nama resep, kategori, dan takaran bahan per porsi",
+      ],
     },
     {
-      title: "Pakai kasir",
-      description: "Pilih menu, cek pesanan, lalu selesaikan pembayaran.",
-      videoFile: "03-kasir-480p24.mp4",
-      details: ["Buka Kasir", "Tekan menu yang dipesan", "Buka keranjang di tombol bawah pada HP", "Pilih metode pembayaran dan selesaikan"],
+      title: "Buat menu",
+      description: "Pilih resep atau racik sendiri. Foto menu boleh ditambah.",
+      videoFile: "03-buat-menu-480p24.mp4",
+      details: ["Buka Menu & Resep", "Tekan Buat menu baru", "Pilih foto dari galeri bila diperlukan", "Atur bahan atau pilih resep"],
     },
     {
       title: "Sambungkan HP",

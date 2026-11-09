@@ -6,6 +6,9 @@ import {
   Check,
   ChevronRight,
   CircleAlert,
+  CreditCard,
+  Download,
+  History,
   Minus,
   Pencil,
   Plus,
@@ -16,6 +19,7 @@ import {
   Wallet,
   X,
 } from "lucide-react";
+import ExcelJS from "exceljs";
 import type {
   CartItem,
   Page,
@@ -25,12 +29,14 @@ import type {
   Transaction,
 } from "../lib/app-data";
 import {
+  calculateProductHpp,
   grams,
   recipeUnit,
   rupiah,
   usedStockUnits,
 } from "../lib/app-data";
 import { Button, Title } from "./ui";
+import { PaymentModal, QrisUploadSection } from "./modals";
 
 type SalesRange = "day" | "week" | "month" | "year" | "all";
 type SalesPoint = { key: string; label: string; value: number };
@@ -346,15 +352,15 @@ export function MiniChart({ points }: { points: SalesPoint[] }) {
   return (
     <>
       <div className="flex h-36 items-end gap-1 pt-4 sm:h-40 sm:gap-1.5">
-      {points.map((point) => (
-        <div key={point.key} className="group flex h-full min-w-0 flex-1 flex-col justify-end">
-          <div
-            title={`${point.label}: ${rupiah(point.value)}`}
-            style={{ height: point.value ? `${Math.max((point.value / max) * 100, 5)}%` : "3px" }}
-            className="w-full rounded-t-md bg-[#dcebe5] transition group-hover:bg-moss"
-          />
-        </div>
-      ))}
+        {points.map((point) => (
+          <div key={point.key} className="group flex h-full min-w-0 flex-1 flex-col justify-end">
+            <div
+              title={`${point.label}: ${rupiah(point.value)}`}
+              style={{ height: point.value ? `${Math.max((point.value / max) * 100, 5)}%` : "3px" }}
+              className="w-full rounded-t-md bg-[#dcebe5] transition group-hover:bg-moss"
+            />
+          </div>
+        ))}
       </div>
       <div className="mt-4 flex justify-between border-t border-line pt-3 text-[11px] font-medium text-slate-400">
         {labels.map((point) => <span key={point.key}>{point.label}</span>)}
@@ -433,7 +439,6 @@ export function StockPage({
         </div>
       </div>
 
-      {/* Tampilan Mobile: Card View Ramah Sentuhan */}
       <div className="space-y-3 sm:hidden">
         {filtered.map((stock) => {
           const isLow = stock.quantity <= stock.minimum;
@@ -498,7 +503,6 @@ export function StockPage({
         )}
       </div>
 
-      {/* Tampilan Desktop & Tablet: Table View Lengkap */}
       <div className="hidden sm:block overflow-x-auto rounded-2xl border border-line bg-white shadow-2xs">
         <div className="min-w-180">
           <div className="grid grid-cols-[1.5fr_1fr_1fr_0.8fr_110px] gap-4 border-b border-line bg-slate-50/80 px-5 py-3 text-xs font-bold uppercase tracking-wider text-slate-500">
@@ -622,6 +626,9 @@ export function MenuPage({
         }
       />
 
+      {/* Bagian Upload QRIS Toko */}
+      <QrisUploadSection />
+
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
         <div className="flex w-fit rounded-xl border border-line bg-white p-1 text-sm font-bold shadow-2xs">
           <button
@@ -685,9 +692,34 @@ export function MenuPage({
                     </div>
                   </div>
                   <h3 className="mt-4 font-bold text-ink">{product.name}</h3>
-                  <p className="mt-0.5 text-lg font-bold text-moss">
-                    {rupiah(product.price)}
-                  </p>
+                  <div className="mt-1 flex items-baseline justify-between gap-2">
+                    <p className="text-lg font-bold text-moss">
+                      {rupiah(product.price)}
+                    </p>
+                    <span className="text-[11px] font-bold text-slate-400">
+                      Harga Jual
+                    </span>
+                  </div>
+
+                  {(() => {
+                    const hpp = calculateProductHpp(product.ingredients, stocks);
+                    const profit = product.price - hpp;
+                    const margin = product.price > 0 ? Math.round((profit / product.price) * 100) : 0;
+                    return (
+                      <div className="mt-2.5 grid grid-cols-2 gap-2 rounded-xl bg-slate-50 p-2.5 text-xs">
+                        <div>
+                          <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">HPP Modal</p>
+                          <p className="font-bold text-slate-700">{rupiah(hpp)}</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Laba / Porsi</p>
+                          <p className={`font-bold ${profit >= 0 ? "text-emerald-700" : "text-rose-600"}`}>
+                            {rupiah(profit)} <span className="text-[10px] font-medium">({margin}%)</span>
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })()}
                   <p
                     className={`mt-2.5 w-fit rounded-full px-2.5 py-0.5 text-xs font-bold ${
                       recipe ? "bg-blue-50 text-blue-700" : "bg-slate-100 text-slate-600"
@@ -815,9 +847,9 @@ export function Cashier({
   onUpdate: (id: string, q: number) => void;
   onCheckout: (method: string) => void;
 }) {
-  const [method, setMethod] = useState("Tunai");
   const [search, setSearch] = useState("");
   const [showMobileCart, setShowMobileCart] = useState(false);
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [menuFilter, setMenuFilter] = useState<"all" | "recipe" | "direct">("all");
   const drawerTouchStart = useRef<number | null>(null);
   const cartTouchStart = useRef<number | null>(null);
@@ -909,35 +941,20 @@ export function Cashier({
           </div>
 
           <div className="mt-4 border-t border-line pt-3">
-            <div className="flex items-baseline justify-between">
+            <div className="flex items-baseline justify-between mb-4">
               <span className="text-sm font-semibold text-slate-600">Total Tagihan</span>
               <span className="text-2xl font-bold tracking-tight text-ink">{rupiah(total)}</span>
             </div>
 
-            <label className="mt-4 block text-xs font-bold uppercase tracking-wider text-slate-500">
-              Metode Pembayaran
-              <select
-                value={method}
-                onChange={(e) => setMethod(e.target.value)}
-                className="mt-1.5 w-full rounded-xl border border-line bg-white px-3.5 py-3 text-sm font-semibold text-ink outline-none focus:border-moss"
-              >
-                <option>Tunai</option>
-                <option>QRIS</option>
-                <option>Transfer</option>
-              </select>
-            </label>
-
-            <div className="mt-4">
-              <Button
-                onClick={() => {
-                  onCheckout(method);
-                  if (isMobileDrawer) setShowMobileCart(false);
-                }}
-                full
-              >
-                <Check size={19} /> Selesaikan Bayar ({rupiah(total)})
-              </Button>
-            </div>
+            <Button
+              onClick={() => {
+                setShowPaymentModal(true);
+                if (isMobileDrawer) setShowMobileCart(false);
+              }}
+              full
+            >
+              <Check size={19} /> Bayar ({rupiah(total)})
+            </Button>
           </div>
         </div>
       )}
@@ -962,21 +979,6 @@ export function Cashier({
                 placeholder="Cari menu..."
                 className="w-full bg-transparent text-sm outline-none placeholder:text-slate-400"
               />
-            </div>
-            <div className="mt-3 flex gap-2 overflow-x-auto pb-0.5">
-              {[
-                ["all", "Semua menu"],
-                ["recipe", "Pakai resep"],
-                ["direct", "Racik sendiri"],
-              ].map(([id, label]) => (
-                <button
-                  key={id}
-                  onClick={() => setMenuFilter(id as typeof menuFilter)}
-                  className={`shrink-0 rounded-full px-3.5 py-2 text-xs font-bold transition ${menuFilter === id ? "bg-moss text-white shadow-sm" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}
-                >
-                  {label}
-                </button>
-              ))}
             </div>
           </div>
 
@@ -1074,7 +1076,6 @@ export function Cashier({
         </section>
       </div>
 
-      {/* Floating Sticky Cart Button on Mobile */}
       {cart.length > 0 && (
         <div className="fixed bottom-24 inset-x-3 z-30 xl:hidden">
           <button
@@ -1106,7 +1107,6 @@ export function Cashier({
         </div>
       )}
 
-      {/* Mobile Cart Drawer Modal */}
       {showMobileCart && (
         <div
           onClick={(e) => {
@@ -1130,6 +1130,17 @@ export function Cashier({
             {renderCartContent(true)}
           </div>
         </div>
+      )}
+
+      {showPaymentModal && (
+        <PaymentModal
+          total={total}
+          onClose={() => setShowPaymentModal(false)}
+          onConfirm={(selectedMethod) => {
+            onCheckout(selectedMethod);
+            setShowPaymentModal(false);
+          }}
+        />
       )}
     </>
   );
@@ -1260,56 +1271,200 @@ export function TransactionList({
 
 export function Report({
   transactions,
+  stocks = [],
   income,
   expense,
 }: {
   transactions: Transaction[];
+  stocks?: Stock[];
   income: number;
   expense: number;
 }) {
+  const [activeTab, setActiveTab] = useState<"all" | "sales" | "restock">("all");
+
   const sold = transactions.filter((t) => t.type === "income").length;
   const net = income - expense;
   const margin = income > 0 ? Math.round((net / income) * 100) : 0;
+
+  const filteredTransactions = transactions.filter((t) => {
+    if (activeTab === "sales") return t.type === "income";
+    if (activeTab === "restock") return t.type === "expense";
+    return true;
+  });
+
+  const exportToExcel = async () => {
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet("Laporan Keuangan", {
+      views: [{ showGridLines: true }],
+    });
+
+    worksheet.columns = [
+      { header: "No", key: "no", width: 6 },
+      { header: "ID Transaksi", key: "id", width: 36 },
+      { header: "Tanggal", key: "date", width: 14 },
+      { header: "Jenis Transaksi", key: "type", width: 26 },
+      { header: "Keterangan", key: "title", width: 32 },
+      { header: "Metode Pembayaran", key: "method", width: 20 },
+      { header: "Nominal (Rp)", key: "amount", width: 18 },
+    ];
+
+    const headerRow = worksheet.getRow(1);
+    headerRow.height = 28;
+    headerRow.eachCell((cell) => {
+      cell.fill = {
+        type: "pattern",
+        pattern: "solid",
+        fgColor: { argb: "FF2D6A4F" },
+      };
+      cell.font = {
+        name: "Arial",
+        size: 11,
+        bold: true,
+        color: { argb: "FFFFFFFF" },
+      };
+      cell.alignment = { vertical: "middle", horizontal: "center" };
+      cell.border = {
+        top: { style: "thin", color: { argb: "FF1B4332" } },
+        bottom: { style: "medium", color: { argb: "FF1B4332" } },
+        left: { style: "thin", color: { argb: "FF1B4332" } },
+        right: { style: "thin", color: { argb: "FF1B4332" } },
+      };
+    });
+
+    filteredTransactions.forEach((t, index) => {
+      const row = worksheet.addRow({
+        no: index + 1,
+        id: t.id,
+        date: t.date,
+        type: t.type === "income" ? "Penjualan (Kasir)" : "Pengeluaran (Belanja Stok)",
+        title: t.title,
+        method: t.method,
+        amount: t.amount,
+      });
+
+      row.height = 22;
+
+      row.eachCell((cell, colNumber) => {
+        cell.font = { name: "Arial", size: 10 };
+        cell.border = {
+          top: { style: "thin", color: { argb: "FFE2E8F0" } },
+          bottom: { style: "thin", color: { argb: "FFE2E8F0" } },
+          left: { style: "thin", color: { argb: "FFE2E8F0" } },
+          right: { style: "thin", color: { argb: "FFE2E8F0" } },
+        };
+        cell.alignment = { vertical: "middle" };
+
+        if ([1, 3, 6].includes(colNumber)) {
+          cell.alignment = { vertical: "middle", horizontal: "center" };
+        }
+
+        if (colNumber === 7) {
+          cell.numFmt = '"Rp "#,##0';
+          cell.alignment = { vertical: "middle", horizontal: "right" };
+          cell.font = {
+            name: "Arial",
+            size: 10,
+            bold: true,
+            color: {
+              argb: t.type === "income" ? "FF047857" : "FFBE123C",
+            },
+          };
+        }
+      });
+    });
+
+    const totalRow = worksheet.addRow({
+      no: "",
+      id: "",
+      date: "",
+      type: "",
+      title: "",
+      method: "TOTAL AKUMULASI",
+      amount: filteredTransactions.reduce(
+        (sum, t) => sum + (t.type === "income" ? t.amount : -t.amount),
+        0,
+      ),
+    });
+
+    totalRow.height = 24;
+    totalRow.eachCell((cell, colNumber) => {
+      cell.font = { name: "Arial", size: 11, bold: true };
+      cell.fill = {
+        type: "pattern",
+        pattern: "solid",
+        fgColor: { argb: "FFF1F5F9" },
+      };
+      cell.border = {
+        top: { style: "medium", color: { argb: "FF94A3B8" } },
+        bottom: { style: "double", color: { argb: "FF94A3B8" } },
+        left: { style: "thin", color: { argb: "FFE2E8F0" } },
+        right: { style: "thin", color: { argb: "FFE2E8F0" } },
+      };
+      if (colNumber === 6) {
+        cell.alignment = { vertical: "middle", horizontal: "right" };
+      }
+      if (colNumber === 7) {
+        cell.numFmt = '"Rp "#,##0';
+        cell.alignment = { vertical: "middle", horizontal: "right" };
+      }
+    });
+
+    const buffer = await workbook.xlsx.writeBuffer();
+    const blob = new Blob([buffer], {
+      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = `Laporan_Keuangan_POS_${new Date().toISOString().slice(0, 10)}.xlsx`;
+    link.click();
+    URL.revokeObjectURL(link.href);
+  };
 
   return (
     <>
       <Title
         title="Laporan Penjualan & Laba"
-        desc="Ringkasan kinerja bisnis UMKM untuk evaluasi dan perlombaan."
+        desc="Ringkasan kinerja bisnis, riwayat belanja stok, dan export data."
         action={
-          <Button secondary onClick={() => window.print()}>
-            <ReceiptText size={18} /> Cetak Laporan
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button secondary onClick={exportToExcel}>
+              <Download size={18} /> Export Excel (.xlsx)
+            </Button>
+            <Button secondary onClick={() => window.print()}>
+              <ReceiptText size={18} /> Cetak Laporan
+            </Button>
+          </div>
         }
       />
+
       <div className="rounded-2xl border border-line bg-white p-5 sm:p-7 shadow-2xs">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line pb-5">
           <div>
             <h2 className="text-lg font-bold text-ink">Ringkasan Keuangan Usaha</h2>
             <p className="mt-0.5 text-xs text-slate-500">
-              Data akumulasi seluruh kasir dan transaksi
+              Data akumulasi seluruh kasir dan transaksi belanja bahan baku
             </p>
           </div>
           <span className="rounded-full bg-[#edf6f2] px-3 py-1.5 text-xs font-bold text-moss">
             Operasional Aktif
           </span>
         </div>
+
         <div className="grid gap-4 py-6 sm:grid-cols-3">
           <div className="rounded-xl bg-slate-50 p-4">
-            <p className="text-xs font-semibold text-slate-500">Total Pemasukan</p>
+            <p className="text-xs font-semibold text-slate-500">Total Pemasukan (Kasir)</p>
             <p className="mt-1 text-xl font-bold text-emerald-700">{rupiah(income)}</p>
           </div>
           <div className="rounded-xl bg-slate-50 p-4">
-            <p className="text-xs font-semibold text-slate-500">Total Pengeluaran</p>
+            <p className="text-xs font-semibold text-slate-500">Total Pengeluaran (Belanja Stok)</p>
             <p className="mt-1 text-xl font-bold text-rose-700">{rupiah(expense)}</p>
           </div>
           <div className="rounded-xl bg-slate-50 p-4">
             <p className="text-xs font-semibold text-slate-500">Laba Bersih Operasional</p>
-            <p className="mt-1 text-xl font-bold text-moss">
-              {rupiah(net)}
-            </p>
+            <p className="mt-1 text-xl font-bold text-moss">{rupiah(net)}</p>
           </div>
         </div>
+
         <div className="rounded-xl bg-[#edf6f2] p-4 sm:flex sm:items-center sm:justify-between text-moss">
           <div>
             <p className="text-sm font-bold">{sold} Penjualan Kasir Sukses</p>
@@ -1322,6 +1477,325 @@ export function Report({
           </span>
         </div>
       </div>
+
+      <section className="mt-6 rounded-2xl border border-line bg-white p-5 sm:p-6 shadow-2xs">
+        <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="font-bold text-ink sm:text-base">Detail Riwayat Transaksi & Belanja</h2>
+            <p className="mt-0.5 text-xs text-slate-500">
+              Pantau arus masuk kasir dan arus keluar belanja bahan baku
+            </p>
+          </div>
+
+          <div className="flex rounded-xl border border-line bg-slate-50 p-1 text-xs font-bold">
+            <button
+              onClick={() => setActiveTab("all")}
+              className={`rounded-lg px-3 py-1.5 transition ${
+                activeTab === "all" ? "bg-white text-ink shadow-2xs" : "text-slate-500"
+              }`}
+            >
+              Semua ({transactions.length})
+            </button>
+            <button
+              onClick={() => setActiveTab("sales")}
+              className={`rounded-lg px-3 py-1.5 transition ${
+                activeTab === "sales" ? "bg-white text-emerald-700 shadow-2xs" : "text-slate-500"
+              }`}
+            >
+              Penjualan Kasir
+            </button>
+            <button
+              onClick={() => setActiveTab("restock")}
+              className={`rounded-lg px-3 py-1.5 transition ${
+                activeTab === "restock" ? "bg-white text-rose-700 shadow-2xs" : "text-slate-500"
+              }`}
+            >
+              Pembelian Stok
+            </button>
+          </div>
+        </div>
+
+        {filteredTransactions.length === 0 ? (
+          <div className="py-8 text-center text-sm text-slate-400">
+            Tidak ada transaksi pada kategori ini.
+          </div>
+        ) : (
+          <div className="divide-y divide-line">
+            {filteredTransactions.map((t) => (
+              <div key={t.id} className="flex items-center justify-between gap-3 py-3">
+                <div
+                  className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl ${
+                    t.type === "income" ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"
+                  }`}
+                >
+                  {t.type === "income" ? <ArrowUpRight size={19} /> : <ArrowDownToLine size={19} />}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-semibold text-ink">{t.title}</p>
+                  <p className="mt-0.5 text-xs text-slate-400">
+                    {t.date} · {t.method}
+                  </p>
+                </div>
+                <p
+                  className={`text-sm font-bold tracking-tight ${
+                    t.type === "income" ? "text-emerald-700" : "text-rose-700"
+                  }`}
+                >
+                  {t.type === "income" ? "+" : "-"}
+                  {rupiah(t.amount)}
+                </p>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+    </>
+  );
+}
+
+export function TransactionsPage({
+  transactions,
+  onAddTransaction,
+}: {
+  transactions: Transaction[];
+  onAddTransaction?: () => void;
+}) {
+  const [filterType, setFilterType] = useState<"all" | "income" | "expense">("all");
+  const [filterMethod, setFilterMethod] = useState<string>("all");
+  const [search, setSearch] = useState("");
+  const [dateRange, setDateRange] = useState<"all" | "today" | "week" | "month">("all");
+
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const sevenDaysAgoStr = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const thirtyDaysAgoStr = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
+  const filtered = transactions.filter((t) => {
+    if (filterType !== "all" && t.type !== filterType) return false;
+    if (filterMethod !== "all" && t.method.toLowerCase() !== filterMethod.toLowerCase()) return false;
+    if (search.trim()) {
+      const q = search.toLowerCase();
+      const matchTitle = t.title.toLowerCase().includes(q);
+      const matchMethod = t.method.toLowerCase().includes(q);
+      const matchDate = t.date.includes(q);
+      if (!matchTitle && !matchMethod && !matchDate) return false;
+    }
+    if (dateRange === "today" && t.date !== todayStr) return false;
+    if (dateRange === "week" && t.date < sevenDaysAgoStr) return false;
+    if (dateRange === "month" && t.date < thirtyDaysAgoStr) return false;
+    return true;
+  });
+
+  const totalIn = filtered.filter((t) => t.type === "income").reduce((s, t) => s + t.amount, 0);
+  const totalOut = filtered.filter((t) => t.type === "expense").reduce((s, t) => s + t.amount, 0);
+  const netCash = totalIn - totalOut;
+
+  const paymentBreakdown = useMemo(() => {
+    const map = new Map<string, { count: number; total: number }>();
+    for (const t of filtered) {
+      const cur = map.get(t.method) || { count: 0, total: 0 };
+      cur.count += 1;
+      cur.total += t.type === "income" ? t.amount : -t.amount;
+      map.set(t.method, cur);
+    }
+    return Array.from(map.entries());
+  }, [filtered]);
+
+  return (
+    <>
+      <Title
+        title="Riwayat Transaksi & Pembayaran"
+        desc="Pantau seluruh arus kas masuk, pengeluaran belanja, dan histori metode pembayaran."
+        action={
+          onAddTransaction && (
+            <Button onClick={onAddTransaction}>
+              <Plus size={18} /> Catat Transaksi
+            </Button>
+          )
+        }
+      />
+
+      <div className="grid gap-3 sm:grid-cols-3 mb-6">
+        <div className="rounded-2xl border border-line bg-white p-4 shadow-2xs">
+          <div className="flex items-center gap-2 text-xs font-semibold text-slate-500 mb-1">
+            <span className="grid h-6 w-6 place-items-center rounded-lg bg-emerald-50 text-emerald-700">
+              <ArrowUpRight size={15} />
+            </span>
+            Total Pemasukan (Tersaring)
+          </div>
+          <p className="text-xl font-bold text-emerald-700">{rupiah(totalIn)}</p>
+        </div>
+
+        <div className="rounded-2xl border border-line bg-white p-4 shadow-2xs">
+          <div className="flex items-center gap-2 text-xs font-semibold text-slate-500 mb-1">
+            <span className="grid h-6 w-6 place-items-center rounded-lg bg-rose-50 text-rose-700">
+              <ArrowDownToLine size={15} />
+            </span>
+            Total Pengeluaran (Tersaring)
+          </div>
+          <p className="text-xl font-bold text-rose-700">{rupiah(totalOut)}</p>
+        </div>
+
+        <div className="rounded-2xl border border-line bg-white p-4 shadow-2xs">
+          <div className="flex items-center gap-2 text-xs font-semibold text-slate-500 mb-1">
+            <span className="grid h-6 w-6 place-items-center rounded-lg bg-blue-50 text-blue-700">
+              <Banknote size={15} />
+            </span>
+            Arus Kas Bersih
+          </div>
+          <p className={`text-xl font-bold ${netCash >= 0 ? "text-moss" : "text-rose-600"}`}>{rupiah(netCash)}</p>
+        </div>
+      </div>
+
+      <div className="mb-6 rounded-2xl border border-line bg-white p-4 shadow-2xs">
+        <p className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-3">
+          Histori Pembayaran Berdasarkan Metode
+        </p>
+        <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+          {paymentBreakdown.length > 0 ? (
+            paymentBreakdown.map(([methodName, stat]) => (
+              <div key={methodName} className="rounded-xl bg-slate-50 p-3">
+                <div className="flex items-center justify-between text-xs text-slate-500 mb-1">
+                  <span className="font-bold text-ink">{methodName}</span>
+                  <span>{stat.count}x</span>
+                </div>
+                <p className="text-sm font-extrabold text-ink">{rupiah(stat.total)}</p>
+              </div>
+            ))
+          ) : (
+            <p className="col-span-full text-xs text-slate-400 py-1">Belum ada transaksi pada filter ini.</p>
+          )}
+        </div>
+      </div>
+
+      <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex w-full max-w-md items-center gap-2 rounded-xl border border-line bg-white px-3 shadow-2xs">
+          <Search size={18} className="text-slate-400" />
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Cari transaksi, menu, atau catatan..."
+            className="w-full bg-transparent py-2.5 text-sm outline-none placeholder:text-slate-400"
+          />
+          {search && (
+            <button onClick={() => setSearch("")} className="text-slate-400 hover:text-slate-600">
+              <X size={16} />
+            </button>
+          )}
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center rounded-xl border border-line bg-white p-1 text-xs font-bold shadow-2xs">
+            <button
+              onClick={() => setFilterType("all")}
+              className={`rounded-lg px-2.5 py-1.5 transition ${filterType === "all" ? "bg-moss text-white" : "text-slate-500 hover:text-ink"}`}
+            >
+              Semua
+            </button>
+            <button
+              onClick={() => setFilterType("income")}
+              className={`rounded-lg px-2.5 py-1.5 transition ${filterType === "income" ? "bg-emerald-600 text-white" : "text-slate-500 hover:text-ink"}`}
+            >
+              Pemasukan
+            </button>
+            <button
+              onClick={() => setFilterType("expense")}
+              className={`rounded-lg px-2.5 py-1.5 transition ${filterType === "expense" ? "bg-rose-600 text-white" : "text-slate-500 hover:text-ink"}`}
+            >
+              Pengeluaran
+            </button>
+          </div>
+
+          <select
+            value={dateRange}
+            onChange={(e) => setDateRange(e.target.value as any)}
+            className="rounded-xl border border-line bg-white px-3 py-2 text-xs font-bold text-slate-700 shadow-2xs outline-none"
+          >
+            <option value="all">Semua Waktu</option>
+            <option value="today">Hari Ini</option>
+            <option value="week">7 Hari Terakhir</option>
+            <option value="month">30 Hari Terakhir</option>
+          </select>
+
+          <select
+            value={filterMethod}
+            onChange={(e) => setFilterMethod(e.target.value)}
+            className="rounded-xl border border-line bg-white px-3 py-2 text-xs font-bold text-slate-700 shadow-2xs outline-none"
+          >
+            <option value="all">Semua Metode</option>
+            <option value="tunai">Tunai</option>
+            <option value="qris">QRIS</option>
+            <option value="transfer">Transfer</option>
+          </select>
+        </div>
+      </div>
+
+      <section className="rounded-2xl border border-line bg-white p-4 sm:p-6 shadow-2xs">
+        <div className="mb-4 flex items-center justify-between border-b border-line pb-3">
+          <div className="flex items-center gap-2">
+            <History size={18} className="text-moss" />
+            <h3 className="font-bold text-ink">Daftar Transaksi ({filtered.length})</h3>
+          </div>
+          <span className="text-xs text-slate-400">Diurutkan dari terbaru</span>
+        </div>
+
+        {filtered.length === 0 ? (
+          <div className="py-12 text-center text-sm text-slate-400">
+            Tidak ada transaksi yang cocok dengan filter.
+          </div>
+        ) : (
+          <div className="divide-y divide-line">
+            {filtered.map((t) => (
+              <div
+                key={t.id}
+                className="flex items-center justify-between gap-3 py-3.5 hover:bg-slate-50/60 rounded-xl px-2 transition"
+              >
+                <div className="flex items-center gap-3 min-w-0 flex-1">
+                  <div
+                    className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl ${
+                      t.type === "income" ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"
+                    }`}
+                  >
+                    {t.type === "income" ? (
+                      <ArrowUpRight size={19} />
+                    ) : (
+                      <ArrowDownToLine size={19} />
+                    )}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-bold text-ink">{t.title}</p>
+                    <div className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-slate-400">
+                      <span>{t.date}</span>
+                      <span>•</span>
+                      <span className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-700">
+                        <CreditCard size={11} /> {t.method}
+                      </span>
+                      {t.category && (
+                        <span className="rounded-md bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-700">
+                          {t.category}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="text-right shrink-0">
+                  <p
+                    className={`text-sm sm:text-base font-extrabold tracking-tight ${
+                      t.type === "income" ? "text-emerald-700" : "text-rose-700"
+                    }`}
+                  >
+                    {t.type === "income" ? "+" : "-"}
+                    {rupiah(t.amount)}
+                  </p>
+                  <span className="text-[10px] font-semibold text-slate-400 uppercase">
+                    {t.type === "income" ? "Pemasukan" : "Pengeluaran"}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
     </>
   );
 }
