@@ -1,13 +1,14 @@
+export type StockUnit = "kg" | "ons" | "gram" | "liter" | "ml" | "pcs" | "bungkus" | "botol" | "sachet";
 export type Stock = {
   id: string;
   name: string;
   quantity: number;
-  unit: "kg" | "gram" | "pcs";
+  unit: StockUnit;
   buyPrice: number;
   minimum: number;
   updatedAt: string;
 };
-export type IngredientUnit = "gram" | "kg" | "pcs";
+export type IngredientUnit = StockUnit;
 export type Ingredient = {
   stockId: string;
   quantity: number;
@@ -52,8 +53,11 @@ export const rupiah = (value: number) =>
     currency: "IDR",
     maximumFractionDigits: 0,
   }).format(value);
-export const grams = (stock: Stock) =>
-  stock.unit === "kg" ? stock.quantity * 1000 : stock.quantity;
+export const unitFactor = (unit: StockUnit) =>
+  unit === "kg" || unit === "liter" ? 1000 : unit === "ons" ? 100 : 1;
+export const grams = (stock: Stock) => stock.quantity * unitFactor(stock.unit);
+export const fromBaseUnits = (quantity: number, unit: StockUnit) =>
+  quantity / unitFactor(unit);
 export const displayQty = (value: number, unit: Stock["unit"]) =>
   unit === "kg"
     ? `${(value / 1000).toLocaleString("id-ID", { maximumFractionDigits: 2 })} kg`
@@ -62,13 +66,15 @@ export const recipeUnit = (
   ingredient: Ingredient,
   stock?: Stock,
 ): IngredientUnit =>
-  ingredient.unit || (stock?.unit === "kg" ? "gram" : stock?.unit || "gram");
+  ingredient.unit || (stock?.unit === "kg" || stock?.unit === "ons" ? "gram" : stock?.unit === "liter" ? "ml" : stock?.unit || "gram");
 export const usedStockUnits = (ingredient: Ingredient, stock: Stock) =>
-  recipeUnit(ingredient, stock) === "kg"
-    ? ingredient.quantity * 1000
-    : ingredient.quantity;
-export const selectableUnits = (stock?: Stock): IngredientUnit[] =>
-  stock?.unit === "pcs" ? ["pcs"] : ["gram", "kg"];
+  ingredient.quantity * unitFactor(recipeUnit(ingredient, stock));
+export const selectableUnits = (stock?: Stock): IngredientUnit[] => {
+  if (!stock) return ["gram", "ons", "kg"];
+  if (["kg", "ons", "gram"].includes(stock.unit)) return ["gram", "ons", "kg"];
+  if (["liter", "ml"].includes(stock.unit)) return ["ml", "liter"];
+  return [stock.unit];
+};
 export const initialStock: Stock[] = [
   {
     id: "bahan-1",

@@ -5,7 +5,7 @@ import { randomUUID } from "node:crypto";
 
 export type Ingredient = { stockId: string; quantity: number; unit?: "gram" | "kg" | "pcs" };
 export type State = {
-  stocks: Array<{ id: string; name: string; quantity: number; unit: "kg" | "gram" | "pcs"; buyPrice: number; minimum: number; updatedAt: string }>;
+  stocks: Array<{ id: string; name: string; quantity: number; unit: "kg" | "ons" | "gram" | "liter" | "ml" | "pcs" | "bungkus" | "botol" | "sachet"; buyPrice: number; minimum: number; updatedAt: string }>;
   recipes: Array<{ id: string; name: string; category: "Makanan" | "Minuman"; ingredients: Ingredient[] }>;
   products: Array<{ id: string; name: string; price: number; imageUrl?: string; ingredients: Ingredient[]; recipeId?: string; recipePortions?: number }>;
   transactions: Array<{ id: string; date: string; type: "income" | "expense"; title: string; amount: number; method: string }>;
@@ -26,8 +26,9 @@ app.use(express.json({ limit: "5mb" }));
 
 const validCode = (code: string) => /^[A-Z0-9]{6,12}$/.test(code);
 const asNumber = (value: unknown) => Number(value) || 0;
-const ingredientBaseUnit = (quantity: number, unit: string) => unit === "kg" ? quantity * 1000 : quantity;
-const stockBaseUnit = (quantity: number, unit: string) => unit === "kg" ? quantity * 1000 : quantity;
+const unitFactor = (unit: string) => unit === "kg" || unit === "liter" ? 1000 : unit === "ons" ? 100 : 1;
+const ingredientBaseUnit = (quantity: number, unit: string) => quantity * unitFactor(unit);
+const stockBaseUnit = (quantity: number, unit: string) => quantity * unitFactor(unit);
 
 let tablesReadyPromise: Promise<void> | null = null;
 
@@ -45,7 +46,7 @@ export async function ensureTables() {
           store_code VARCHAR(12) NOT NULL REFERENCES app_stores(access_code) ON DELETE CASCADE,
           id TEXT NOT NULL, name TEXT NOT NULL,
           quantity NUMERIC NOT NULL CHECK (quantity >= 0),
-          unit TEXT NOT NULL CHECK (unit IN ('kg', 'gram', 'pcs')),
+          unit TEXT NOT NULL CHECK (unit IN ('kg', 'ons', 'gram', 'liter', 'ml', 'pcs', 'bungkus', 'botol', 'sachet')),
           buy_price NUMERIC NOT NULL CHECK (buy_price >= 0),
           minimum_quantity NUMERIC NOT NULL DEFAULT 0 CHECK (minimum_quantity >= 0),
           updated_label TEXT NOT NULL,
@@ -60,7 +61,7 @@ export async function ensureTables() {
         CREATE TABLE IF NOT EXISTS recipe_ingredients (
           store_code VARCHAR(12) NOT NULL, recipe_id TEXT NOT NULL, stock_id TEXT NOT NULL,
           quantity NUMERIC NOT NULL CHECK (quantity >= 0),
-          unit TEXT NOT NULL CHECK (unit IN ('kg', 'gram', 'pcs')),
+          unit TEXT NOT NULL CHECK (unit IN ('kg', 'ons', 'gram', 'liter', 'ml', 'pcs', 'bungkus', 'botol', 'sachet')),
           PRIMARY KEY (store_code, recipe_id, stock_id),
           FOREIGN KEY (store_code, recipe_id) REFERENCES recipes(store_code, id) ON DELETE CASCADE,
           FOREIGN KEY (store_code, stock_id) REFERENCES stock_items(store_code, id) ON DELETE CASCADE
@@ -75,7 +76,7 @@ export async function ensureTables() {
         CREATE TABLE IF NOT EXISTS menu_ingredients (
           store_code VARCHAR(12) NOT NULL, menu_id TEXT NOT NULL, stock_id TEXT NOT NULL,
           quantity NUMERIC NOT NULL CHECK (quantity >= 0),
-          unit TEXT NOT NULL CHECK (unit IN ('kg', 'gram', 'pcs')),
+          unit TEXT NOT NULL CHECK (unit IN ('kg', 'ons', 'gram', 'liter', 'ml', 'pcs', 'bungkus', 'botol', 'sachet')),
           PRIMARY KEY (store_code, menu_id, stock_id),
           FOREIGN KEY (store_code, menu_id) REFERENCES menu_items(store_code, id) ON DELETE CASCADE,
           FOREIGN KEY (store_code, stock_id) REFERENCES stock_items(store_code, id) ON DELETE CASCADE
@@ -95,6 +96,12 @@ export async function ensureTables() {
           ALTER TABLE recipe_ingredients ADD CONSTRAINT recipe_ingredients_quantity_check CHECK (quantity >= 0);
           ALTER TABLE menu_ingredients DROP CONSTRAINT IF EXISTS menu_ingredients_quantity_check;
           ALTER TABLE menu_ingredients ADD CONSTRAINT menu_ingredients_quantity_check CHECK (quantity >= 0);
+          ALTER TABLE stock_items DROP CONSTRAINT IF EXISTS stock_items_unit_check;
+          ALTER TABLE stock_items ADD CONSTRAINT stock_items_unit_check CHECK (unit IN ('kg', 'ons', 'gram', 'liter', 'ml', 'pcs', 'bungkus', 'botol', 'sachet'));
+          ALTER TABLE recipe_ingredients DROP CONSTRAINT IF EXISTS recipe_ingredients_unit_check;
+          ALTER TABLE recipe_ingredients ADD CONSTRAINT recipe_ingredients_unit_check CHECK (unit IN ('kg', 'ons', 'gram', 'liter', 'ml', 'pcs', 'bungkus', 'botol', 'sachet'));
+          ALTER TABLE menu_ingredients DROP CONSTRAINT IF EXISTS menu_ingredients_unit_check;
+          ALTER TABLE menu_ingredients ADD CONSTRAINT menu_ingredients_unit_check CHECK (unit IN ('kg', 'ons', 'gram', 'liter', 'ml', 'pcs', 'bungkus', 'botol', 'sachet'));
           ALTER TABLE menu_items ADD COLUMN IF NOT EXISTS image_url TEXT;
         `);
       } catch {
@@ -295,7 +302,7 @@ apiRouter.post("/state/:code/checkout", requireDatabase, async (request, respons
     for (const stockId of stockIds) {
       const stock = stockRows.rows.find((row) => row.id === stockId)!;
       const remaining = stockBaseUnit(asNumber(stock.quantity), stock.unit) - required.get(stockId)!;
-      await client.query(`UPDATE stock_items SET quantity = $3, updated_label = 'Baru saja' WHERE store_code = $1 AND id = $2`, [code, stockId, stock.unit === "kg" ? remaining / 1000 : remaining]);
+      await client.query(`UPDATE stock_items SET quantity = $3, updated_label = 'Baru saja' WHERE store_code = $1 AND id = $2`, [code, stockId, remaining / unitFactor(stock.unit)]);
     }
     const amount = items.reduce((total, item) => total + (prices.get(String(item.productId)) || 0) * asNumber(item.quantity), 0);
     const title = items.map((item) => `${names.get(String(item.productId))} x${item.quantity}`).join(", ");

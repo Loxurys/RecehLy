@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import {
   grams,
+  fromBaseUnits,
   initialProducts,
   initialRecipes,
   initialStock,
@@ -466,10 +467,7 @@ function App() {
       return used
         ? {
             ...stock,
-            quantity:
-              stock.unit === "kg"
-                ? (grams(stock) - used) / 1000
-                : stock.quantity - used,
+            quantity: fromBaseUnits(grams(stock) - used, stock.unit),
             updatedAt: "Baru saja",
           }
         : stock;

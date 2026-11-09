@@ -92,9 +92,14 @@ export function StockModal({
               onChange={(e) => setUnit(e.target.value as Stock["unit"])}
             >
               <option value="kg">Kilogram</option>
-              <option vaule="Ons">Ons</option>
+              <option value="ons">Ons</option>
               <option value="gram">Gram</option>
+              <option value="liter">Liter</option>
+              <option value="ml">Mililiter</option>
               <option value="pcs">Pcs</option>
+              <option value="bungkus">Bungkus</option>
+              <option value="botol">Botol</option>
+              <option value="sachet">Sachet</option>
             </select>
           </Field>
         </div>
@@ -354,9 +359,14 @@ export function EditStockModal({
               onChange={(e) => setUnit(e.target.value as Stock["unit"])}
             >
               <option value="kg">Kilogram</option>
-              <option> value="Ons"</option>
+              <option value="ons">Ons</option>
               <option value="gram">Gram</option>
+              <option value="liter">Liter</option>
+              <option value="ml">Mililiter</option>
               <option value="pcs">Pcs</option>
+              <option value="bungkus">Bungkus</option>
+              <option value="botol">Botol</option>
+              <option value="sachet">Sachet</option>
             </select>
           </Field>
         </div>
