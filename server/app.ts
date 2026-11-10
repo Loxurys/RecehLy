@@ -33,77 +33,83 @@ export async function ensureTables(): Promise<void> {
   if (!pool) return;
   if (!tablesReadyPromise) {
     tablesReadyPromise = (async () => {
-      await pool.query(`
-        CREATE TABLE IF NOT EXISTS app_stores (
-          access_code VARCHAR(12) PRIMARY KEY,
-          demo_data BOOLEAN NOT NULL DEFAULT TRUE,
-          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-        );
-        CREATE TABLE IF NOT EXISTS stock_items (
-          store_code VARCHAR(12) NOT NULL REFERENCES app_stores(access_code) ON DELETE CASCADE,
-          id TEXT NOT NULL, name TEXT NOT NULL,
-          quantity NUMERIC NOT NULL CHECK (quantity >= 0),
-          unit TEXT NOT NULL CHECK (unit IN ('kg', 'ons', 'gram', 'liter', 'ml', 'pcs', 'bungkus', 'botol', 'sachet')),
-          buy_price NUMERIC NOT NULL CHECK (buy_price >= 0),
-          minimum_quantity NUMERIC NOT NULL DEFAULT 0 CHECK (minimum_quantity >= 0),
-          updated_label TEXT NOT NULL,
-          PRIMARY KEY (store_code, id)
-        );
-        CREATE TABLE IF NOT EXISTS recipes (
-          store_code VARCHAR(12) NOT NULL REFERENCES app_stores(access_code) ON DELETE CASCADE,
-          id TEXT NOT NULL, name TEXT NOT NULL,
-          category TEXT NOT NULL CHECK (category IN ('Makanan', 'Minuman', 'Saus', 'Komponen')),
-          PRIMARY KEY (store_code, id)
-        );
-        CREATE TABLE IF NOT EXISTS recipe_ingredients (
-          store_code VARCHAR(12) NOT NULL, recipe_id TEXT NOT NULL, stock_id TEXT NOT NULL,
-          quantity NUMERIC NOT NULL CHECK (quantity >= 0),
-          unit TEXT NOT NULL CHECK (unit IN ('kg', 'ons', 'gram', 'liter', 'ml', 'pcs', 'bungkus', 'botol', 'sachet')),
-          PRIMARY KEY (store_code, recipe_id, stock_id),
-          FOREIGN KEY (store_code, recipe_id) REFERENCES recipes(store_code, id) ON DELETE CASCADE,
-          FOREIGN KEY (store_code, stock_id) REFERENCES stock_items(store_code, id) ON DELETE CASCADE
-        );
-        CREATE TABLE IF NOT EXISTS menu_items (
-          store_code VARCHAR(12) NOT NULL REFERENCES app_stores(access_code) ON DELETE CASCADE,
-          id TEXT NOT NULL, name TEXT NOT NULL,
-          price NUMERIC NOT NULL CHECK (price >= 0), image_url TEXT, recipe_id TEXT, recipe_portions NUMERIC,
-          PRIMARY KEY (store_code, id),
-          FOREIGN KEY (store_code, recipe_id) REFERENCES recipes(store_code, id) ON DELETE SET NULL
-        );
-        CREATE TABLE IF NOT EXISTS menu_ingredients (
-          store_code VARCHAR(12) NOT NULL, menu_id TEXT NOT NULL, stock_id TEXT NOT NULL,
-          quantity NUMERIC NOT NULL CHECK (quantity >= 0),
-          unit TEXT NOT NULL CHECK (unit IN ('kg', 'ons', 'gram', 'liter', 'ml', 'pcs', 'bungkus', 'botol', 'sachet')),
-          PRIMARY KEY (store_code, menu_id, stock_id),
-          FOREIGN KEY (store_code, menu_id) REFERENCES menu_items(store_code, id) ON DELETE CASCADE,
-          FOREIGN KEY (store_code, stock_id) REFERENCES stock_items(store_code, id) ON DELETE CASCADE
-        );
-        CREATE TABLE IF NOT EXISTS financial_transactions (
-          store_code VARCHAR(12) NOT NULL REFERENCES app_stores(access_code) ON DELETE CASCADE,
-          id TEXT NOT NULL, transaction_date DATE NOT NULL,
-          type TEXT NOT NULL CHECK (type IN ('income', 'expense')),
-          title TEXT NOT NULL, amount NUMERIC NOT NULL CHECK (amount >= 0), method TEXT NOT NULL,
-          PRIMARY KEY (store_code, id)
-        );
-      `);
       try {
         await pool.query(`
-          ALTER TABLE recipes DROP CONSTRAINT IF EXISTS recipes_category_check;
-          ALTER TABLE recipes ADD CONSTRAINT recipes_category_check CHECK (category IN ('Makanan', 'Minuman', 'Saus', 'Komponen'));
-          ALTER TABLE recipe_ingredients DROP CONSTRAINT IF EXISTS recipe_ingredients_quantity_check;
-          ALTER TABLE recipe_ingredients ADD CONSTRAINT recipe_ingredients_quantity_check CHECK (quantity >= 0);
-          ALTER TABLE menu_ingredients DROP CONSTRAINT IF EXISTS menu_ingredients_quantity_check;
-          ALTER TABLE menu_ingredients ADD CONSTRAINT menu_ingredients_quantity_check CHECK (quantity >= 0);
-          ALTER TABLE stock_items DROP CONSTRAINT IF EXISTS stock_items_unit_check;
-          ALTER TABLE stock_items ADD CONSTRAINT stock_items_unit_check CHECK (unit IN ('kg', 'ons', 'gram', 'liter', 'ml', 'pcs', 'bungkus', 'botol', 'sachet'));
-          ALTER TABLE recipe_ingredients DROP CONSTRAINT IF EXISTS recipe_ingredients_unit_check;
-          ALTER TABLE recipe_ingredients ADD CONSTRAINT recipe_ingredients_unit_check CHECK (unit IN ('kg', 'ons', 'gram', 'liter', 'ml', 'pcs', 'bungkus', 'botol', 'sachet'));
-          ALTER TABLE menu_ingredients DROP CONSTRAINT IF EXISTS menu_ingredients_unit_check;
-          ALTER TABLE menu_ingredients ADD CONSTRAINT menu_ingredients_unit_check CHECK (unit IN ('kg', 'ons', 'gram', 'liter', 'ml', 'pcs', 'bungkus', 'botol', 'sachet'));
-          ALTER TABLE menu_items ADD COLUMN IF NOT EXISTS image_url TEXT;
+          CREATE TABLE IF NOT EXISTS app_stores (
+            access_code VARCHAR(12) PRIMARY KEY,
+            demo_data BOOLEAN NOT NULL DEFAULT TRUE,
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+          );
+          CREATE TABLE IF NOT EXISTS stock_items (
+            store_code VARCHAR(12) NOT NULL REFERENCES app_stores(access_code) ON DELETE CASCADE,
+            id TEXT NOT NULL, name TEXT NOT NULL,
+            quantity NUMERIC NOT NULL CHECK (quantity >= 0),
+            unit TEXT NOT NULL CHECK (unit IN ('kg', 'ons', 'gram', 'liter', 'ml', 'pcs', 'bungkus', 'botol', 'sachet')),
+            buy_price NUMERIC NOT NULL CHECK (buy_price >= 0),
+            minimum_quantity NUMERIC NOT NULL DEFAULT 0 CHECK (minimum_quantity >= 0),
+            updated_label TEXT NOT NULL,
+            PRIMARY KEY (store_code, id)
+          );
+          CREATE TABLE IF NOT EXISTS recipes (
+            store_code VARCHAR(12) NOT NULL REFERENCES app_stores(access_code) ON DELETE CASCADE,
+            id TEXT NOT NULL, name TEXT NOT NULL,
+            category TEXT NOT NULL CHECK (category IN ('Makanan', 'Minuman', 'Saus', 'Komponen')),
+            PRIMARY KEY (store_code, id)
+          );
+          CREATE TABLE IF NOT EXISTS recipe_ingredients (
+            store_code VARCHAR(12) NOT NULL, recipe_id TEXT NOT NULL, stock_id TEXT NOT NULL,
+            quantity NUMERIC NOT NULL CHECK (quantity >= 0),
+            unit TEXT NOT NULL CHECK (unit IN ('kg', 'ons', 'gram', 'liter', 'ml', 'pcs', 'bungkus', 'botol', 'sachet')),
+            PRIMARY KEY (store_code, recipe_id, stock_id),
+            FOREIGN KEY (store_code, recipe_id) REFERENCES recipes(store_code, id) ON DELETE CASCADE,
+            FOREIGN KEY (store_code, stock_id) REFERENCES stock_items(store_code, id) ON DELETE CASCADE
+          );
+          CREATE TABLE IF NOT EXISTS menu_items (
+            store_code VARCHAR(12) NOT NULL REFERENCES app_stores(access_code) ON DELETE CASCADE,
+            id TEXT NOT NULL, name TEXT NOT NULL,
+            price NUMERIC NOT NULL CHECK (price >= 0), image_url TEXT, recipe_id TEXT, recipe_portions NUMERIC,
+            PRIMARY KEY (store_code, id),
+            FOREIGN KEY (store_code, recipe_id) REFERENCES recipes(store_code, id) ON DELETE SET NULL
+          );
+          CREATE TABLE IF NOT EXISTS menu_ingredients (
+            store_code VARCHAR(12) NOT NULL, menu_id TEXT NOT NULL, stock_id TEXT NOT NULL,
+            quantity NUMERIC NOT NULL CHECK (quantity >= 0),
+            unit TEXT NOT NULL CHECK (unit IN ('kg', 'ons', 'gram', 'liter', 'ml', 'pcs', 'bungkus', 'botol', 'sachet')),
+            PRIMARY KEY (store_code, menu_id, stock_id),
+            FOREIGN KEY (store_code, menu_id) REFERENCES menu_items(store_code, id) ON DELETE CASCADE,
+            FOREIGN KEY (store_code, stock_id) REFERENCES stock_items(store_code, id) ON DELETE CASCADE
+          );
+          CREATE TABLE IF NOT EXISTS financial_transactions (
+            store_code VARCHAR(12) NOT NULL REFERENCES app_stores(access_code) ON DELETE CASCADE,
+            id TEXT NOT NULL, transaction_date DATE NOT NULL,
+            type TEXT NOT NULL CHECK (type IN ('income', 'expense')),
+            title TEXT NOT NULL, amount NUMERIC NOT NULL CHECK (amount >= 0), method TEXT NOT NULL,
+            PRIMARY KEY (store_code, id)
+          );
         `);
-      } catch {
-        // Migration constraints handled
+        try {
+          await pool.query(`
+            ALTER TABLE recipes DROP CONSTRAINT IF EXISTS recipes_category_check;
+            ALTER TABLE recipes ADD CONSTRAINT recipes_category_check CHECK (category IN ('Makanan', 'Minuman', 'Saus', 'Komponen'));
+            ALTER TABLE recipe_ingredients DROP CONSTRAINT IF EXISTS recipe_ingredients_quantity_check;
+            ALTER TABLE recipe_ingredients ADD CONSTRAINT recipe_ingredients_quantity_check CHECK (quantity >= 0);
+            ALTER TABLE menu_ingredients DROP CONSTRAINT IF EXISTS menu_ingredients_quantity_check;
+            ALTER TABLE menu_ingredients ADD CONSTRAINT menu_ingredients_quantity_check CHECK (quantity >= 0);
+            ALTER TABLE stock_items DROP CONSTRAINT IF EXISTS stock_items_unit_check;
+            ALTER TABLE stock_items ADD CONSTRAINT stock_items_unit_check CHECK (unit IN ('kg', 'ons', 'gram', 'liter', 'ml', 'pcs', 'bungkus', 'botol', 'sachet'));
+            ALTER TABLE recipe_ingredients DROP CONSTRAINT IF EXISTS recipe_ingredients_unit_check;
+            ALTER TABLE recipe_ingredients ADD CONSTRAINT recipe_ingredients_unit_check CHECK (unit IN ('kg', 'ons', 'gram', 'liter', 'ml', 'pcs', 'bungkus', 'botol', 'sachet'));
+            ALTER TABLE menu_ingredients DROP CONSTRAINT IF EXISTS menu_ingredients_unit_check;
+            ALTER TABLE menu_ingredients ADD CONSTRAINT menu_ingredients_unit_check CHECK (unit IN ('kg', 'ons', 'gram', 'liter', 'ml', 'pcs', 'bungkus', 'botol', 'sachet'));
+            ALTER TABLE menu_items ADD COLUMN IF NOT EXISTS image_url TEXT;
+          `);
+        } catch {
+          // Migration constraints handled
+        }
+      } catch (err) {
+        tablesReadyPromise = null;
+        console.error("ensureTables query error:", err);
+        throw err;
       }
     })();
   }
