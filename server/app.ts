@@ -11,7 +11,7 @@ export const pool = databaseUrl
   ? new Pool({
       connectionString: databaseUrl,
       ssl: {
-        rejectUnauthorized: false, // Aman untuk Neon.tech di Netlify Functions / AWS Lambda
+        rejectUnauthorized: false,
       },
       max: 1,
       idleTimeoutMillis: 3000,
@@ -34,22 +34,24 @@ export async function ensureTables() {
 
       CREATE TABLE IF NOT EXISTS stock_items (
         id VARCHAR(64) NOT NULL,
-        store_code VARCHAR(32) NOT NULL REFERENCES app_stores(code) ON DELETE CASCADE,
+        store_code VARCHAR(32) NOT NULL,
         name VARCHAR(255) NOT NULL,
         quantity NUMERIC(12, 3) NOT NULL DEFAULT 0,
         unit VARCHAR(32) NOT NULL CHECK (unit IN ('kg', 'ons', 'gram', 'liter', 'ml', 'pcs', 'bungkus', 'botol', 'sachet')),
         buy_price NUMERIC(12, 2) NOT NULL DEFAULT 0,
         minimum NUMERIC(12, 3) NOT NULL DEFAULT 0,
         updated_at VARCHAR(64) NOT NULL DEFAULT 'Baru saja',
-        PRIMARY KEY (store_code, id)
+        PRIMARY KEY (store_code, id),
+        CONSTRAINT fk_stock_items_store FOREIGN KEY (store_code) REFERENCES app_stores(code) ON DELETE CASCADE
       );
 
       CREATE TABLE IF NOT EXISTS recipes (
         id VARCHAR(64) NOT NULL,
-        store_code VARCHAR(32) NOT NULL REFERENCES app_stores(code) ON DELETE CASCADE,
+        store_code VARCHAR(32) NOT NULL,
         name VARCHAR(255) NOT NULL,
         category VARCHAR(64) NOT NULL,
-        PRIMARY KEY (store_code, id)
+        PRIMARY KEY (store_code, id),
+        CONSTRAINT fk_recipes_store FOREIGN KEY (store_code) REFERENCES app_stores(code) ON DELETE CASCADE
       );
 
       CREATE TABLE IF NOT EXISTS recipe_ingredients (
@@ -59,18 +61,19 @@ export async function ensureTables() {
         quantity NUMERIC(12, 3) NOT NULL DEFAULT 0,
         unit VARCHAR(32) NOT NULL CHECK (unit IN ('kg', 'ons', 'gram', 'liter', 'ml', 'pcs', 'bungkus', 'botol', 'sachet')),
         PRIMARY KEY (store_code, recipe_id, stock_id),
-        FOREIGN KEY (store_code, recipe_id) REFERENCES recipes(store_code, id) ON DELETE CASCADE,
-        FOREIGN KEY (store_code, stock_id) REFERENCES stock_items(store_code, id) ON DELETE CASCADE
+        CONSTRAINT fk_recipe_ingredients_recipe FOREIGN KEY (store_code, recipe_id) REFERENCES recipes(store_code, id) ON DELETE CASCADE,
+        CONSTRAINT fk_recipe_ingredients_stock FOREIGN KEY (store_code, stock_id) REFERENCES stock_items(store_code, id) ON DELETE CASCADE
       );
 
       CREATE TABLE IF NOT EXISTS menu_items (
         id VARCHAR(64) NOT NULL,
-        store_code VARCHAR(32) NOT NULL REFERENCES app_stores(code) ON DELETE CASCADE,
+        store_code VARCHAR(32) NOT NULL,
         name VARCHAR(255) NOT NULL,
         price NUMERIC(12, 2) NOT NULL DEFAULT 0,
         recipe_id VARCHAR(64),
         recipe_portions NUMERIC(12, 3) DEFAULT 1,
-        PRIMARY KEY (store_code, id)
+        PRIMARY KEY (store_code, id),
+        CONSTRAINT fk_menu_items_store FOREIGN KEY (store_code) REFERENCES app_stores(code) ON DELETE CASCADE
       );
 
       CREATE TABLE IF NOT EXISTS menu_ingredients (
@@ -80,20 +83,21 @@ export async function ensureTables() {
         quantity NUMERIC(12, 3) NOT NULL DEFAULT 0,
         unit VARCHAR(32) NOT NULL CHECK (unit IN ('kg', 'ons', 'gram', 'liter', 'ml', 'pcs', 'bungkus', 'botol', 'sachet')),
         PRIMARY KEY (store_code, menu_id, stock_id),
-        FOREIGN KEY (store_code, menu_id) REFERENCES menu_items(store_code, id) ON DELETE CASCADE,
-        FOREIGN KEY (store_code, stock_id) REFERENCES stock_items(store_code, id) ON DELETE CASCADE
+        CONSTRAINT fk_menu_ingredients_menu FOREIGN KEY (store_code, menu_id) REFERENCES menu_items(store_code, id) ON DELETE CASCADE,
+        CONSTRAINT fk_menu_ingredients_stock FOREIGN KEY (store_code, stock_id) REFERENCES stock_items(store_code, id) ON DELETE CASCADE
       );
 
       CREATE TABLE IF NOT EXISTS transactions (
         id VARCHAR(64) NOT NULL,
-        store_code VARCHAR(32) NOT NULL REFERENCES app_stores(code) ON DELETE CASCADE,
+        store_code VARCHAR(32) NOT NULL,
         date VARCHAR(32) NOT NULL,
         type VARCHAR(32) NOT NULL CHECK (type IN ('income', 'expense')),
         title VARCHAR(255) NOT NULL,
         amount NUMERIC(12, 2) NOT NULL DEFAULT 0,
         method VARCHAR(64) NOT NULL,
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-        PRIMARY KEY (store_code, id)
+        PRIMARY KEY (store_code, id),
+        CONSTRAINT fk_transactions_store FOREIGN KEY (store_code) REFERENCES app_stores(code) ON DELETE CASCADE
       );
     `);
     tablesEnsured = true;
