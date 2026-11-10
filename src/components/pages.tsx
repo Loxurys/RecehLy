@@ -190,7 +190,7 @@ export function Dashboard({
       tone: "bg-rose-50 text-rose-700",
     },
     {
-      label: "Saldo kas usaha",
+      label: "Saldo pemasukan bersih",
       value: rupiah(totalIncome - totalExpense),
       icon: Wallet,
       tone: "bg-blue-50 text-blue-700",
@@ -201,7 +201,7 @@ export function Dashboard({
     <>
       <Title
         title="Ringkasan Operasional"
-        desc="Pantau penjualan kasir, stok, dan arus kas usaha Anda."
+        desc="Pantau penjualan kasir, stok, dan pemasukan usaha Anda."
         action={
           <Button onClick={() => setPage("cashier")}>
             <ShoppingBasket size={18} /> Buka Kasir
@@ -328,7 +328,7 @@ export function Dashboard({
           <div>
             <h2 className="font-bold text-ink sm:text-base">Transaksi Terbaru</h2>
             <p className="mt-0.5 text-xs text-slate-500">
-              Arus kas penjualan kasir dan belanja operasional
+              Arus pemasukan penjualan kasir dan belanja operasional
             </p>
           </div>
           <button
@@ -1248,7 +1248,7 @@ export function Finance({
           tone="text-rose-700 bg-rose-50"
         />
         <Metric
-          label="Saldo Kas Bersih"
+          label="Saldo Pemasukan Bersih"
           value={income - expense}
           icon={Banknote}
           tone="text-blue-700 bg-blue-50"
@@ -1670,7 +1670,7 @@ export function TransactionsPage({
     <>
       <Title
         title="Riwayat Transaksi & Pembayaran"
-        desc="Pantau seluruh arus kas masuk, pengeluaran belanja, dan histori metode pembayaran."
+        desc="Pantau seluruh pemasukan, pengeluaran belanja, dan histori metode pembayaran."
         action={
           onAddTransaction && (
             <Button onClick={onAddTransaction}>
@@ -1706,7 +1706,7 @@ export function TransactionsPage({
             <span className="grid h-6 w-6 place-items-center rounded-lg bg-blue-50 text-blue-700">
               <Banknote size={15} />
             </span>
-            Arus Kas Bersih
+            Saldo Pemasukan Bersih
           </div>
           <p className={`text-xl font-bold ${netCash >= 0 ? "text-moss" : "text-rose-600"}`}>{rupiah(netCash)}</p>
         </div>
