@@ -856,7 +856,7 @@ export function MenuModal({
                   : "text-slate-500 hover:text-ink"
               }`}
             >
-              Pakai resep
+              Pakai bahan dasar
             </button>
             <button
               type="button"
