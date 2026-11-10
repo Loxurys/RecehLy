@@ -1385,7 +1385,7 @@ export function TutorialModal({ onClose }: { onClose: () => void }) {
     },
     {
       title: "Buat bahan dasar",
-      description: "Racikan dasar untuk memudahkan pembuatan porsi menu seragam.",
+      description: "Bahan dasar untuk memudahkan pembuatan porsi menu seragam.",
       videoFile: "02-buat-bahan-dasar-480p24.mp4",
       details: [
         "Buka Menu & Resep",

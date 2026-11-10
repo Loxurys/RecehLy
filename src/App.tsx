@@ -369,7 +369,7 @@ function App() {
     { id: "cashier", label: "Kasir", icon: ShoppingBasket },
     { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
     { id: "stock", label: "Stok Bahan", icon: Package },
-    { id: "menu", label: "Menu & Resep", icon: ClipboardList },
+    { id: "menu", label: "Menu & Bahan", icon: ClipboardList },
     { id: "finance", label: "Keuangan", icon: Wallet },
     { id: "report", label: "Laporan", icon: BarChart3 },
   ];
@@ -680,7 +680,7 @@ function App() {
                 );
                 if (usedInMenu || usedInRecipe) {
                   showToast(
-                    "Bahan masih dipakai menu atau resep. Hapus pemakaiannya dulu.",
+                    "Bahan masih dipakai menu atau Bahan. Hapus pemakaiannya dulu.",
                   );
                   return;
                 }
@@ -933,7 +933,7 @@ function App() {
                 ...snapshot,
                 recipes: nextRecipes,
               },
-              `Resep ${recipe.name} berhasil disimpan`,
+              `Bahan ${recipe.name} berhasil disimpan`,
             );
             setModal(null);
           }}
@@ -957,7 +957,7 @@ function App() {
                 ...snapshot,
                 recipes: nextRecipes,
               },
-              `Resep ${updated.name} berhasil diperbarui`,
+              `Bahan ${updated.name} berhasil diperbarui`,
             );
             setModal(null);
             setEditRecipeTarget(null);

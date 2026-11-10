@@ -621,7 +621,7 @@ export function MenuPage({
         }
         action={
           <Button onClick={tab === "menu" ? onAdd : onAddRecipe}>
-            <Plus size={18} /> {tab === "menu" ? "Buat menu baru" : "Buat resep baru"}
+            <Plus size={18} /> {tab === "menu" ? "Buat menu baru" : "Buat Bahan baru"}
           </Button>
         }
       />
@@ -726,7 +726,7 @@ export function MenuPage({
                     }`}
                   >
                     {recipe
-                      ? `Resep: ${recipe.name} · ${product.recipePortions || 1} porsi`
+                      ? `Bahan: ${recipe.name} · ${product.recipePortions || 1} porsi`
                       : "Bahan dasar sendiri "}
                   </p>
                 </div>
@@ -779,14 +779,14 @@ export function MenuPage({
                     <button
                       onClick={() => onEditRecipe(recipe)}
                       className="rounded-lg p-2 text-slate-500 hover:bg-slate-100"
-                      title="Ubah resep"
+                      title="Ubah Bahan"
                     >
                       <Pencil size={16} />
                     </button>
                     <button
                       onClick={() => onDeleteRecipe(recipe)}
                       className="rounded-lg p-2 text-rose-600 hover:bg-rose-50"
-                      title="Hapus resep"
+                      title="Hapus Bahan"
                     >
                       <Trash2 size={16} />
                     </button>
@@ -800,7 +800,7 @@ export function MenuPage({
 
               <div className="mt-4 border-t border-line pt-3">
                 <p className="mb-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                  Takaran standar per resep:
+                  Takaran standar per Bahan:
                 </p>
                 <div className="space-y-1">
                   {recipe.ingredients.map((ingredient) => (
@@ -821,7 +821,7 @@ export function MenuPage({
           ))}
           {filteredRecipes.length === 0 && (
             <div className="col-span-full rounded-2xl border border-dashed border-slate-200 bg-white p-8 text-center text-sm text-slate-500">
-              Tidak ada resep yang ditemukan.
+              Tidak ada Bahan yang ditemukan.
             </div>
           )}
         </div>
