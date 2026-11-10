@@ -18,13 +18,20 @@ export function Modal({
   children: ReactNode;
 }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/35 p-0 sm:items-center sm:p-4">
-      <section className="w-full max-w-lg rounded-t-2xl bg-white p-5 shadow-2xl sm:rounded-2xl">
+    <div
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+      className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/45 p-0 backdrop-blur-xs transition sm:items-center sm:p-4"
+    >
+      <section className="max-h-[92vh] w-full max-w-lg overflow-y-auto rounded-t-3xl bg-white p-5 shadow-2xl sm:rounded-2xl sm:p-6 animate-in fade-in slide-in-from-bottom-4 duration-200">
+        <div className="mx-auto mb-3 h-1.5 w-12 rounded-full bg-slate-200 sm:hidden" />
         <div className="mb-5 flex items-center justify-between">
-          <h2 className="text-lg font-bold">{title}</h2>
+          <h2 className="text-lg font-bold tracking-tight text-ink">{title}</h2>
           <button
             onClick={onClose}
-            className="rounded-lg p-2 text-slate-500 hover:bg-slate-100"
+            className="rounded-xl p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700 active:scale-95"
+            title="Tutup"
           >
             <X size={20} />
           </button>
@@ -48,9 +55,13 @@ export function NavItem({
   return (
     <button
       onClick={onClick}
-      className={`flex w-full items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium transition ${active ? "bg-moss text-white shadow-sm" : "text-slate-600 hover:bg-slate-100"}`}
+      className={`flex w-full items-center gap-3 rounded-xl px-4 py-3 text-sm font-semibold transition active:scale-[0.99] ${
+        active
+          ? "bg-moss text-white shadow-sm"
+          : "text-slate-600 hover:bg-slate-100 hover:text-ink"
+      }`}
     >
-      <Icon size={19} />
+      <Icon size={19} className={active ? "text-white" : "text-slate-400"} />
       {item.label}
     </button>
   );
@@ -66,14 +77,14 @@ export function Title({
   action?: ReactNode;
 }) {
   return (
-    <div className="mb-7 flex flex-wrap items-end justify-between gap-4">
+    <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
+        <h1 className="text-xl font-bold tracking-tight text-ink sm:text-2xl lg:text-3xl">
           {title}
         </h1>
-        <p className="mt-1 text-sm text-slate-500">{desc}</p>
+        <p className="mt-0.5 text-xs text-slate-500 sm:text-sm">{desc}</p>
       </div>
-      {action}
+      {action && <div className="w-full sm:w-auto">{action}</div>}
     </div>
   );
 }
@@ -83,17 +94,25 @@ export function Button({
   onClick,
   secondary = false,
   disabled = false,
+  full = false,
 }: {
   children: ReactNode;
   onClick?: () => void;
   secondary?: boolean;
   disabled?: boolean;
+  full?: boolean;
 }) {
   return (
     <button
       disabled={disabled}
       onClick={onClick}
-      className={`inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold transition disabled:cursor-not-allowed disabled:opacity-40 ${secondary ? "border border-line bg-white text-slate-700 hover:bg-slate-50" : "bg-moss text-white hover:bg-moss-dark"}`}
+      className={`inline-flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-bold transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-45 ${
+        full ? "w-full" : ""
+      } ${
+        secondary
+          ? "border border-line bg-white text-slate-700 hover:bg-slate-50"
+          : "bg-moss text-white shadow-sm hover:bg-moss-dark"
+      }`}
     >
       {children}
     </button>
@@ -108,9 +127,9 @@ export function Field({
   children: ReactNode;
 }) {
   return (
-    <label className="block text-xs font-bold uppercase tracking-wide text-slate-500">
+    <label className="block text-xs font-bold uppercase tracking-wider text-slate-500">
       {label}
-      <div className="mt-2 [&_input]:w-full [&_input]:rounded-xl [&_input]:border [&_input]:border-line [&_input]:px-3 [&_input]:py-3 [&_input]:text-sm [&_select]:w-full [&_select]:rounded-xl [&_select]:border [&_select]:border-line [&_select]:bg-white [&_select]:px-3 [&_select]:py-3 [&_select]:text-sm">
+      <div className="mt-1.5 [&_input]:w-full [&_input]:rounded-xl [&_input]:border [&_input]:border-line [&_input]:bg-white [&_input]:px-3.5 [&_input]:py-3 [&_input]:text-sm [&_input]:text-ink [&_input]:outline-none [&_input:focus]:border-moss [&_select]:w-full [&_select]:rounded-xl [&_select]:border [&_select]:border-line [&_select]:bg-white [&_select]:px-3.5 [&_select]:py-3 [&_select]:text-sm [&_select]:text-ink [&_select]:outline-none [&_select:focus]:border-moss">
         {children}
       </div>
     </label>

@@ -9,9 +9,63 @@
   --font-sans: "DM Sans", "Segoe UI", sans-serif;
 }
 
+@layer utilities {
+  /* Utility class untuk menyembunyikan scrollbar */
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+}
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --bg-main: #f7f7f5;
+    --bg-card: #ffffff;
+    --text-ink: #1e293b;
+    --border-line: #e2e8f0;
+  }
+
+  .dark {
+    --bg-main: #0f172a;
+    --bg-card: #1e293b;
+    --text-ink: #f8fafc;
+    --border-line: #334155;
+  }
+
+  body {
+    background-color: var(--bg-main);
+    color: var(--text-ink);
+    transition: background-color 0.2s ease, color 0.2s ease;
+  }
+}
+
+/* Hide scrollbar jika diperlukan */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
 * { box-sizing: border-box; }
 body { margin: 0; min-width: 320px; background: var(--color-cream); color: var(--color-ink); }
 button, input, select { font: inherit; }
 button { cursor: pointer; }
 input:focus, select:focus { outline: 2px solid #98c5b6; outline-offset: 1px; }
 @media print { .no-print { display: none !important; } body { background: white; } }
+
+*::-webkit-scrollbar {
+  display: none;
+}
+
+* {
+  scrollbar-width: none;
+}

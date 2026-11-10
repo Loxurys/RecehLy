@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <rect width="64" height="64" rx="18" fill="#24715D"/>
+  <!-- Basket / Store Icon -->
+  <path d="M22 26C22 20.4772 26.4772 16 32 16C37.5228 16 42 20.4772 42 26" stroke="#FFFFFF" stroke-width="3.5" stroke-linecap="round"/>
+  <rect x="15" y="25" width="34" height="23" rx="6" fill="#FFFFFF"/>
+  <path d="M22 34V39M32 34V39M42 34V39" stroke="#24715D" stroke-width="3" stroke-linecap="round"/>
+  <circle cx="43" cy="21" r="3" fill="#34D399"/>
+</svg>

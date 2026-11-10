@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowDownToLine,
   BarChart3,
@@ -6,14 +6,18 @@ import {
   ClipboardList,
   Cloud,
   CloudOff,
+  CircleHelp,
   LayoutDashboard,
   Menu as MenuIcon,
   Package,
   ShoppingBasket,
+  Smartphone,
   Wallet,
+  X,
 } from "lucide-react";
 import {
   grams,
+  fromBaseUnits,
   initialProducts,
   initialRecipes,
   initialStock,
@@ -47,8 +51,8 @@ import {
   StockPage,
 } from "./components/pages";
 import {
-  DeleteModal,
   ConnectionModal,
+  DeleteModal,
   EditStockModal,
   FinanceModal,
   MenuModal,
@@ -56,7 +60,15 @@ import {
   RecipeModal,
   RestockModal,
   StockModal,
+  TutorialModal,
 } from "./components/modals";
+
+
+export const APP_CONFIG = {
+  name: "RecehLy",
+  tagline: "Dashboard Kasir & Stok",
+  logo: "/favicon.svg",
+};
 
 function App() {
   const [page, setPage] = useState<Page>("cashier");
@@ -107,78 +119,152 @@ function App() {
     "local" | "connecting" | "online" | "syncing" | "error"
   >(accessCode ? "connecting" : "local");
   const [remoteReady, setRemoteReady] = useState(false);
+  const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
+  const [tutorialOpen, setTutorialOpen] = useState(
+    () => localStorage.getItem("app-tutorial-seen") !== "true",
+  );
+
+  const lastKnownServerUpdatedAt = useRef<string | null>(null);
+
   const snapshot = useMemo<AppState>(
     () => ({ stocks, products, recipes, transactions, demoData }),
     [stocks, products, recipes, transactions, demoData],
   );
 
+  const showToast = useCallback((msg: string) => {
+    setNotice(msg);
+    setTimeout(() => {
+      setNotice((prev) => (prev === msg ? "" : prev));
+    }, 2800);
+  }, []);
+
+  // Simpan state secara terpadu tanpa race condition & stale snapshot
+  const commitState = useCallback(
+    (next: AppState, toastMsg?: string) => {
+      setStocks(next.stocks);
+      setProducts(next.products);
+      setRecipes(next.recipes);
+      setTransactions(next.transactions);
+      setDemoData(next.demoData);
+
+      localStorage.setItem("app-stocks", JSON.stringify(next.stocks));
+      localStorage.setItem("app-products", JSON.stringify(next.products));
+      localStorage.setItem("app-recipes", JSON.stringify(next.recipes));
+      localStorage.setItem("app-transactions", JSON.stringify(next.transactions));
+      localStorage.setItem("app-mode", next.demoData ? "sample" : "empty");
+      localStorage.setItem("app-last-sync", new Date().toISOString());
+
+      // Kirim sinyal ke tab browser yang sama
+      try {
+        const channel = new BroadcastChannel("app-sync");
+        channel.postMessage("sync");
+        channel.close();
+      } catch {
+        // BroadcastChannel unavailable
+      }
+
+      // Kirim langsung ke server database online jika sedang tersambung
+      if (accessCode) {
+        setSyncStatus("syncing");
+        saveRemoteState(accessCode, next)
+          .then((res) => {
+            lastKnownServerUpdatedAt.current = res.updatedAt;
+            setSyncStatus("online");
+            if (toastMsg) showToast(toastMsg);
+          })
+          .catch((err) => {
+            console.error("Gagal sinkron ke database:", err);
+            setSyncStatus("error");
+            if (toastMsg) showToast(`${toastMsg} (tersimpan di perangkat)`);
+          });
+      } else {
+        if (toastMsg) showToast(toastMsg);
+      }
+    },
+    [accessCode, showToast],
+  );
+
+  // Menerima snapshot dari server atau tab lain (TIDAK PERNAH menghapus keranjang kasir)
   const applySnapshot = useCallback((next: AppState) => {
     setStocks(next.stocks);
     setProducts(next.products);
     setRecipes(next.recipes);
     setTransactions(next.transactions);
     setDemoData(next.demoData);
-    setCart([]);
+    // Pertahankan item keranjang kasir yang produknya masih ada
+    setCart((prev) =>
+      prev.filter((item) => next.products.some((p) => p.id === item.product.id)),
+    );
   }, []);
 
+  // Hubungkan ke server saat accessCode aktif pertama kali
   useEffect(() => {
-    localStorage.setItem("app-stocks", JSON.stringify(stocks));
-    localStorage.setItem("app-products", JSON.stringify(products));
-    localStorage.setItem("app-recipes", JSON.stringify(recipes));
-    localStorage.setItem("app-transactions", JSON.stringify(transactions));
-    localStorage.setItem("app-mode", demoData ? "sample" : "empty");
-    localStorage.setItem("app-last-sync", new Date().toISOString());
-  }, [stocks, products, recipes, transactions, demoData]);
-  useEffect(() => {
-    if (!accessCode) return;
+    if (!accessCode) {
+      setSyncStatus("local");
+      setRemoteReady(false);
+      return;
+    }
     let active = true;
+    setSyncStatus("connecting");
     getRemoteState(accessCode)
       .then((remote) => {
         if (!active) return;
-        if (remote) applySnapshot(remote.state);
-        else return saveRemoteState(accessCode, snapshot);
+        if (remote) {
+          lastKnownServerUpdatedAt.current = remote.updatedAt;
+          applySnapshot(remote.state);
+        } else {
+          return saveRemoteState(accessCode, snapshot).then((res) => {
+            lastKnownServerUpdatedAt.current = res.updatedAt;
+          });
+        }
       })
       .then(() => {
         if (active) {
           setRemoteReady(true);
           setSyncStatus("online");
+          showToast(`Tersambung ke toko ${accessCode}`);
         }
       })
-      .catch(() => {
+      .catch((err) => {
+        console.error("Initial connect failed:", err);
         if (active) {
           setSyncStatus("error");
-          setNotice("Penyimpanan online belum bisa dihubungi");
+          showToast("Database online belum dapat dihubungi. Menggunakan data perangkat.");
         }
       });
+
     return () => {
       active = false;
     };
-  }, [accessCode, applySnapshot]);
-  useEffect(() => {
-    if (!accessCode || !remoteReady) return;
-    const timer = window.setTimeout(() => {
-      setSyncStatus("syncing");
-      saveRemoteState(accessCode, snapshot)
-        .then(() => setSyncStatus("online"))
-        .catch(() => setSyncStatus("error"));
-    }, 700);
-    return () => window.clearTimeout(timer);
-  }, [accessCode, remoteReady, snapshot]);
+  }, [accessCode, applySnapshot, showToast]);
+
+  // Polling sinkronisasi antar HP berkala (5 detik)
   useEffect(() => {
     if (!accessCode || !remoteReady) return;
     const interval = window.setInterval(() => {
       getRemoteState(accessCode)
         .then((remote) => {
           if (!remote) return;
-          if (JSON.stringify(remote.state) !== JSON.stringify(snapshot)) {
-            applySnapshot(remote.state);
-            setNotice("Data diperbarui dari perangkat lain");
+          // Hanya update jika timestamp di server benar-benar berubah dari HP lain
+          if (
+            lastKnownServerUpdatedAt.current &&
+            remote.updatedAt === lastKnownServerUpdatedAt.current
+          ) {
+            return;
           }
+          lastKnownServerUpdatedAt.current = remote.updatedAt;
+          applySnapshot(remote.state);
+          setSyncStatus("online");
+          showToast("Data diperbarui dari perangkat lain");
         })
-        .catch(() => setSyncStatus("error"));
+        .catch(() => {
+          setSyncStatus("error");
+        });
     }, 5000);
     return () => window.clearInterval(interval);
-  }, [accessCode, applySnapshot, remoteReady, snapshot]);
+  }, [accessCode, applySnapshot, remoteReady, showToast]);
+
+  // Sinkronisasi antar-tab dalam browser yang sama
   useEffect(() => {
     const channel = new BroadcastChannel("app-sync");
     channel.onmessage = () => {
@@ -187,34 +273,32 @@ function App() {
       setRecipes(load("app-recipes", initialRecipes));
       setTransactions(load("app-transactions", initialTransactions));
       setDemoData(localStorage.getItem("app-mode") !== "empty");
-      setNotice("Data diperbarui dari perangkat lain");
     };
     return () => channel.close();
   }, []);
-  const sync = () => {
-    const channel = new BroadcastChannel("app-sync");
-    channel.postMessage("sync");
-    channel.close();
+
+  const manualSync = () => {
     if (accessCode) {
       setSyncStatus("syncing");
       saveRemoteState(accessCode, snapshot)
-        .then(() => {
+        .then((res) => {
+          lastKnownServerUpdatedAt.current = res.updatedAt;
           setSyncStatus("online");
-          setNotice("Data tersimpan online");
+          showToast("Data tersinkron ke database online");
         })
         .catch(() => {
           setSyncStatus("error");
-          setNotice("Data tersimpan di perangkat ini");
+          showToast("Data tersimpan di perangkat ini");
         });
       return;
     }
-    setNotice("Data tersimpan di perangkat ini");
-    setTimeout(() => setNotice(""), 2500);
+    commitState(snapshot, "Data tersimpan di perangkat ini");
   };
+
   const connect = (rawCode: string) => {
     const code = normalizeAccessCode(rawCode);
     if (code.length < 6) {
-      setNotice("Kode minimal 6 karakter");
+      showToast("Kode minimal 6 karakter");
       return;
     }
     setSyncStatus("connecting");
@@ -222,10 +306,13 @@ function App() {
     getRemoteState(code)
       .then((remote) => {
         if (remote) {
+          lastKnownServerUpdatedAt.current = remote.updatedAt;
           applySnapshot(remote.state);
           return;
         }
-        return saveRemoteState(code, snapshot);
+        return saveRemoteState(code, snapshot).then((res) => {
+          lastKnownServerUpdatedAt.current = res.updatedAt;
+        });
       })
       .then(() => {
         localStorage.setItem("app-access-code", code);
@@ -233,45 +320,42 @@ function App() {
         setRemoteReady(true);
         setSyncStatus("online");
         setModal(null);
-        setNotice("Perangkat tersambung");
+        showToast(`Tersambung ke kode: ${code}`);
       })
       .catch((error: Error) => {
         setSyncStatus("error");
-        setNotice(error.message);
+        showToast(error.message || "Gagal menyambung");
       });
   };
+
   const disconnect = () => {
     localStorage.removeItem("app-access-code");
     setAccessCode(null);
     setRemoteReady(false);
+    lastKnownServerUpdatedAt.current = null;
     setSyncStatus("local");
     setModal(null);
-    setNotice("Kembali pakai data perangkat ini");
+    showToast("Menggunakan penyimpanan offline perangkat");
   };
+
   const switchData = () => {
     const nextDemoData = !demoData;
-    const nextStocks = nextDemoData ? initialStock : [];
-    const nextProducts = nextDemoData ? initialProducts : [];
-    const nextRecipes = nextDemoData ? initialRecipes : [];
-    const nextTransactions = nextDemoData ? initialTransactions : [];
-    localStorage.setItem("app-stocks", JSON.stringify(nextStocks));
-    localStorage.setItem("app-products", JSON.stringify(nextProducts));
-    localStorage.setItem("app-recipes", JSON.stringify(nextRecipes));
-    localStorage.setItem("app-transactions", JSON.stringify(nextTransactions));
-    localStorage.setItem("app-mode", nextDemoData ? "sample" : "empty");
-    setStocks(nextStocks);
-    setProducts(nextProducts);
-    setRecipes(nextRecipes);
-    setTransactions(nextTransactions);
-    setDemoData(nextDemoData);
-    setCart([]);
-    setNotice(
+    const nextState: AppState = {
+      stocks: nextDemoData ? initialStock : [],
+      products: nextDemoData ? initialProducts : [],
+      recipes: nextDemoData ? initialRecipes : [],
+      transactions: nextDemoData ? initialTransactions : [],
+      demoData: nextDemoData,
+    };
+    commitState(
+      nextState,
       nextDemoData
         ? "Data contoh dimuat ulang"
         : "Data kosong aktif. Siap dites dari nol.",
     );
-    new BroadcastChannel("app-sync").postMessage("sync");
+    setCart([]);
   };
+
   const income = transactions
     .filter((t) => t.type === "income")
     .reduce((sum, t) => sum + t.amount, 0);
@@ -280,14 +364,16 @@ function App() {
     .reduce((sum, t) => sum + t.amount, 0);
   const lowStock = stocks.filter((s) => s.quantity <= s.minimum);
   const productIngredients = (product: Product) => product.ingredients;
+
   const nav: NavigationItem[] = [
     { id: "cashier", label: "Kasir", icon: ShoppingBasket },
     { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
     { id: "stock", label: "Stok Bahan", icon: Package },
-    { id: "menu", label: "Menu & Resep", icon: ClipboardList },
+    { id: "menu", label: "Menu & Bahan", icon: ClipboardList },
     { id: "finance", label: "Keuangan", icon: Wallet },
     { id: "report", label: "Laporan", icon: BarChart3 },
   ];
+
   const addToCart = (product: Product) =>
     setCart((current) => {
       const found = current.find((item) => item.product.id === product.id);
@@ -299,6 +385,7 @@ function App() {
           )
         : [...current, { product, quantity: 1 }];
     });
+
   const updateCart = (id: string, quantity: number) =>
     setCart((current) =>
       quantity <= 0
@@ -307,11 +394,14 @@ function App() {
             item.product.id === id ? { ...item, quantity } : item,
           ),
     );
+
   const total = cart.reduce(
     (sum, item) => sum + item.product.price * item.quantity,
     0,
   );
+
   const canFulfill = (item: CartItem) =>
+    productIngredients(item.product).length > 0 &&
     productIngredients(item.product).every((ingredient) => {
       const stock = stocks.find((s) => s.id === ingredient.stockId);
       return (
@@ -319,8 +409,10 @@ function App() {
         grams(stock) >= usedStockUnits(ingredient, stock) * item.quantity
       );
     });
+
   const checkout = async (method: string) => {
     if (!cart.length) return;
+
     if (accessCode && remoteReady) {
       setSyncStatus("syncing");
       try {
@@ -332,22 +424,27 @@ function App() {
           })),
           method,
         );
+        lastKnownServerUpdatedAt.current = result.updatedAt;
         applySnapshot(result.state);
         setLastSale(result.sale);
+        setCart([]);
         setModal("receipt");
         setSyncStatus("online");
+        showToast("Pembayaran berhasil dicatat online");
       } catch (error) {
         setSyncStatus("error");
-        setNotice(
-          error instanceof Error ? error.message : "Checkout tidak tersimpan.",
+        showToast(
+          error instanceof Error ? error.message : "Checkout gagal disimpan.",
         );
       }
       return;
     }
+
     if (cart.some((item) => !canFulfill(item))) {
-      setNotice("Stok bahan kurang. Cek bahan yang merah dulu.");
+      showToast("Stok bahan kurang. Cek bahan yang perlu dibeli.");
       return;
     }
+
     const sale: Transaction = {
       id: crypto.randomUUID(),
       date: new Date().toISOString().slice(0, 10),
@@ -356,44 +453,58 @@ function App() {
       amount: total,
       method,
     };
-    setStocks((current) =>
-      current.map((stock) => {
-        const used = cart.reduce((sum, item) => {
-          const ingredient = productIngredients(item.product).find(
-            (i) => i.stockId === stock.id,
-          );
-          return (
-            sum +
-            (ingredient ? usedStockUnits(ingredient, stock) : 0) * item.quantity
-          );
-        }, 0);
-        return used
-          ? {
-              ...stock,
-              quantity:
-                stock.unit === "kg"
-                  ? (grams(stock) - used) / 1000
-                  : stock.quantity - used,
-              updatedAt: "Baru saja",
-            }
-          : stock;
-      }),
+
+    const nextStocks = stocks.map((stock) => {
+      const used = cart.reduce((sum, item) => {
+        const ingredient = productIngredients(item.product).find(
+          (i) => i.stockId === stock.id,
+        );
+        return (
+          sum +
+          (ingredient ? usedStockUnits(ingredient, stock) : 0) * item.quantity
+        );
+      }, 0);
+      return used
+        ? {
+            ...stock,
+            quantity: fromBaseUnits(grams(stock) - used, stock.unit),
+            updatedAt: "Baru saja",
+          }
+        : stock;
+    });
+
+    const nextTransactions = [sale, ...transactions];
+
+    commitState(
+      {
+        ...snapshot,
+        stocks: nextStocks,
+        transactions: nextTransactions,
+      },
+      "Pembayaran berhasil",
     );
-    setTransactions((current) => [sale, ...current]);
+
     setLastSale(sale);
     setCart([]);
     setModal("receipt");
-    sync();
   };
 
   return (
-    <div className="min-h-screen bg-[#f8f7f2] text-ink">
+    <div className="min-h-screen bg-[#f8f7f2] text-ink flex flex-col">
+      {/* Sidebar Desktop */}
       <aside className="no-print fixed inset-y-0 left-0 z-30 hidden w-64 flex-col border-r border-line bg-white lg:flex">
-        <div className="flex items-center gap-3 px-6 py-7">
-          <div className="grid h-10 w-10 place-items-center rounded-xl bg-moss text-white">
-            <ShoppingBasket size={21} />
+        <div className="flex items-center gap-3 px-6 py-6 border-b border-line/60">
+          <div className="grid h-10 w-10 place-items-center rounded-xl overflow-hidden bg-moss text-white shadow-xs">
+            {APP_CONFIG.logo ? (
+              <img src={APP_CONFIG.logo} alt={APP_CONFIG.name} className="h-full w-full object-cover" />
+            ) : (
+              <ShoppingBasket size={21} />
+            )}
           </div>
-          <p className="font-bold tracking-tight">ini_nama</p>
+          <div className="min-w-0 flex-1">
+            <p className="font-bold tracking-tight text-ink truncate">{APP_CONFIG.name}</p>
+            <p className="text-[11px] font-medium text-slate-400 truncate">{APP_CONFIG.tagline}</p>
+          </div>
         </div>
         <nav className="mt-4 space-y-1 px-3">
           {nav.map((item) => (
@@ -405,61 +516,140 @@ function App() {
             />
           ))}
         </nav>
-      </aside>
-      <main className="lg:ml-64">
-        <header className="no-print sticky top-0 z-20 flex h-18 items-center justify-between border-b border-line bg-[#f8f7f2]/95 px-4 backdrop-blur sm:px-8">
-          <button className="lg:hidden rounded-lg p-2">
-            <MenuIcon />
-          </button>
-          <div className="hidden sm:block">
-            <p className="text-sm font-semibold">Dashboard</p>
-            <p className="text-xs text-slate-500">Senin, 19 Oktober 2026</p>
+        <div className="mt-auto m-4 rounded-2xl bg-[#edf6f2] p-4 border border-moss/15">
+          <div className="mb-1 flex items-center justify-between">
+            <div className="flex items-center gap-1.5 text-xs font-bold text-moss">
+              <Smartphone size={16} /> Mode Sinkron
+            </div>
+            <span
+              className={`h-2 w-2 rounded-full ${
+                syncStatus === "online"
+                  ? "bg-emerald-500 animate-pulse"
+                  : syncStatus === "syncing"
+                    ? "bg-amber-500 animate-spin"
+                    : "bg-slate-400"
+              }`}
+            />
           </div>
-          <div className="flex items-center gap-2">
+          <p className="text-xs leading-relaxed text-slate-600">
+            {accessCode
+              ? `Kode aktif: ${accessCode}. Tersambung online ke Supabase.`
+              : "Berjalan offline. Sambungkan kode untuk multi-HP."}
+          </p>
+          <button
+            onClick={() => setModal("connection")}
+            className="mt-2.5 text-xs font-bold text-moss hover:underline"
+          >
+            {accessCode ? "Ubah Kode Toko" : "+ Sambungkan Antar HP"}
+          </button>
+        </div>
+      </aside>
+
+      {/* Main Container */}
+      <main className="lg:ml-64 flex-1 flex flex-col">
+        {/* Sticky Header Responsive */}
+        <header className="no-print sticky top-0 z-20 flex h-16 sm:h-18 items-center justify-between border-b border-line bg-[#f8f7f2]/95 px-3.5 sm:px-8 backdrop-blur">
+          <div className="flex items-center gap-2 sm:gap-3">
+            <div className="hidden sm:block">
+              <p className="text-sm font-bold text-ink">
+                {nav.find((n) => n.id === page)?.label || "Dashboard"}
+              </p>
+              <p className="text-[11px] text-slate-500">Operasional Usaha UMKM</p>
+            </div>
+            <div className="sm:hidden flex items-center gap-2">
+              <span className="font-bold text-sm tracking-tight text-ink">
+                {nav.find((n) => n.id === page)?.label}
+              </span>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-1.5 sm:gap-2">
+            {/* Status Koneksi Online Pill (Bisa diklik di Mobile & Desktop) */}
             <button
               onClick={() => setModal("connection")}
-              className={`hidden items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold sm:flex ${syncStatus === "online" ? "bg-emerald-50 text-emerald-700" : syncStatus === "syncing" || syncStatus === "connecting" ? "bg-amber-50 text-amber-700" : "bg-slate-100 text-slate-600"}`}
-              title="Atur sinkron antar perangkat"
+              className={`flex items-center gap-1.5 rounded-full px-2.5 py-1.5 sm:px-3 text-xs font-bold transition active:scale-95 shadow-2xs ${
+                syncStatus === "online"
+                  ? "bg-emerald-50 text-emerald-800 border border-emerald-200"
+                  : syncStatus === "syncing" || syncStatus === "connecting"
+                    ? "bg-amber-50 text-amber-800 border border-amber-200"
+                    : "bg-white text-slate-600 border border-line"
+              }`}
+              title="Klik untuk atur sinkronisasi antar HP"
             >
-              {syncStatus === "online" ? <Cloud size={14} /> : <CloudOff size={14} />}
-              {syncStatus === "online"
-                ? "Sinkron online"
-                : syncStatus === "syncing" || syncStatus === "connecting"
-                  ? "Menyinkronkan"
-                  : "Data perangkat"}
+              {syncStatus === "online" ? (
+                <Cloud size={14} className="text-emerald-600" />
+              ) : (
+                <CloudOff size={14} className="text-slate-400" />
+              )}
+              <span className="hidden xs:inline">
+                {syncStatus === "online"
+                  ? accessCode || "Online"
+                  : syncStatus === "syncing"
+                    ? "Menyinkronkan"
+                    : syncStatus === "connecting"
+                      ? "Menghubungkan"
+                      : "Offline"}
+              </span>
             </button>
+
+            {/* Switch Data Demo */}
             <button
               onClick={switchData}
-              className={`rounded-lg border px-3 py-2 text-xs font-bold transition ${demoData ? "border-moss bg-[#edf6f2] text-moss" : "border-line bg-white text-slate-600 hover:bg-slate-50"}`}
-              title="Ganti data pengujian"
+              className={`rounded-xl border px-2.5 py-1.5 text-xs font-bold transition active:scale-95 shadow-2xs ${
+                demoData
+                  ? "border-moss/40 bg-[#edf6f2] text-moss"
+                  : "border-line bg-white text-slate-600 hover:bg-slate-50"
+              }`}
+              title="Ganti data pengujian (Demo / Kosong)"
             >
-              {demoData ? "Data contoh" : "Data kosong"}
+              {demoData ? "Data Demo" : "Data Kosong"}
             </button>
+
+            {/* Manual Sync Button */}
             <button
-              onClick={sync}
-              className="rounded-lg border border-line bg-white p-2 text-slate-600 hover:bg-slate-50"
-              title="Simpan data"
+              onClick={manualSync}
+              className="rounded-xl border border-line bg-white p-2 text-slate-600 hover:bg-slate-50 active:scale-95 shadow-2xs"
+              title="Simpan / Sinkronkan data sekarang"
             >
-              <ArrowDownToLine size={18} />
+              <ArrowDownToLine size={17} />
             </button>
-            <button className="relative rounded-lg border border-line bg-white p-2 text-slate-600">
-              <Bell size={18} />
+
+            <button
+              onClick={() => setTutorialOpen(true)}
+              className="hidden rounded-xl border border-line bg-white p-2 text-slate-600 hover:bg-slate-50 sm:block"
+              title="Cara pakai"
+            >
+              <CircleHelp size={17} />
+            </button>
+
+            {/* Low Stock Indicator */}
+            <button
+              onClick={() => setPage("stock")}
+              className="relative rounded-xl border border-line bg-white p-2 text-slate-600 hover:bg-slate-50 shadow-2xs"
+              title="Peringatan stok"
+            >
+              <Bell size={17} />
               {lowStock.length > 0 && (
-                <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-rose-500" />
+                <span className="absolute -right-0.5 -top-0.5 flex h-3 w-3">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75" />
+                  <span className="relative inline-flex rounded-full h-3 w-3 bg-rose-500" />
+                </span>
               )}
             </button>
           </div>
         </header>
+
+        {/* Floating Toast Notification */}
         {notice && (
-          <div className="no-print fixed right-5 top-20 z-50 rounded-lg bg-ink px-4 py-3 text-sm text-white shadow-lg">
+          <div className="no-print fixed right-4 top-20 z-50 rounded-2xl bg-slate-900/95 px-4 py-3 text-xs font-semibold text-white shadow-xl backdrop-blur animate-in fade-in slide-in-from-top-2">
             {notice}
           </div>
         )}
-        <div className="mx-auto max-w-7xl p-4 pb-24 sm:p-8 lg:pb-8">
+
+        {/* Page Content */}
+        <div className="mx-auto w-full max-w-7xl flex-1 p-3.5 pb-24 sm:p-6 lg:p-8 lg:pb-8">
           {page === "dashboard" && (
             <Dashboard
-              income={income}
-              expense={expense}
               lowStock={lowStock}
               transactions={transactions}
               setPage={setPage}
@@ -477,13 +667,29 @@ function App() {
                 setEditStockTarget(stock);
                 setModal("edit-stock");
               }}
-              onDelete={(stock) =>
+              onDelete={(stock) => {
+                const usedInMenu = products.some((product) =>
+                  product.ingredients.some(
+                    (ingredient) => ingredient.stockId === stock.id,
+                  ),
+                );
+                const usedInRecipe = recipes.some((recipe) =>
+                  recipe.ingredients.some(
+                    (ingredient) => ingredient.stockId === stock.id,
+                  ),
+                );
+                if (usedInMenu || usedInRecipe) {
+                  showToast(
+                    "Bahan masih dipakai menu atau Bahan. Hapus pemakaiannya dulu.",
+                  );
+                  return;
+                }
                 setDeleteTarget({
                   type: "stock",
                   id: stock.id,
                   name: stock.name,
-                })
-              }
+                });
+              }}
             />
           )}
           {page === "menu" && (
@@ -545,24 +751,42 @@ function App() {
           )}
         </div>
       </main>
-      <nav className="no-print fixed inset-x-0 bottom-0 z-30 flex justify-around border-t border-line bg-white px-1 py-2 lg:hidden">
-        {nav.slice(0, 5).map((item) => (
-          <button
-            key={item.id}
-            onClick={() => setPage(item.id)}
-            className={`flex min-w-13 flex-col items-center gap-1 rounded-lg px-2 py-1 text-[10px] font-medium ${page === item.id ? "text-moss" : "text-slate-500"}`}
-          >
-            <item.icon size={19} />
-            {item.label.split(" ")[0]}
-          </button>
-        ))}
+
+      <nav className="no-print fixed inset-x-3 bottom-3 z-30 grid h-15 grid-cols-5 items-center rounded-2xl bg-[#182421] px-1 text-white shadow-2xl lg:hidden">
+        {["dashboard", "stock"].map((id) => {
+          const item = nav.find((entry) => entry.id === id)!;
+          const active = page === item.id;
+          return <button key={item.id} onClick={() => setPage(item.id)} className={`relative grid justify-items-center gap-0.5 text-[9px] font-semibold ${active ? "text-white" : "text-white/55"}`}><item.icon size={18} /><span>{item.label.split(" ")[0]}</span>{item.id === "stock" && lowStock.length > 0 && <span className="absolute right-5 top-0 h-1.5 w-1.5 rounded-full bg-rose-400" />}</button>;
+        })}
+        <button onClick={() => setPage("cashier")} className="relative -top-5 grid h-15 w-15 justify-self-center place-items-center rounded-full border-4 border-[#f8f7f2] bg-moss text-white shadow-lg active:scale-95" title="Kasir"><ShoppingBasket size={23} /></button>
+        {["menu"].map((id) => {
+          const item = nav.find((entry) => entry.id === id)!;
+          const active = page === item.id;
+          return <button key={item.id} onClick={() => setPage(item.id)} className={`grid justify-items-center gap-0.5 text-[9px] font-semibold ${active ? "text-white" : "text-white/55"}`}><item.icon size={18} /><span>Menu</span></button>;
+        })}
+        <button onClick={() => setMobileMoreOpen(true)} className="grid justify-items-center gap-0.5 text-[9px] font-semibold text-white/55"><MenuIcon size={18} /><span>Lainnya</span></button>
       </nav>
+
+      {mobileMoreOpen && (
+        <div onClick={(event) => event.target === event.currentTarget && setMobileMoreOpen(false)} className="no-print fixed inset-0 z-50 flex items-end bg-slate-950/40 p-3 lg:hidden">
+          <div className="w-full rounded-3xl bg-white p-4 shadow-2xl">
+            <div className="mx-auto mb-4 h-1.5 w-10 rounded-full bg-slate-200" />
+            <div className="grid grid-cols-2 gap-3">
+              {["finance", "report"].map((id) => { const item = nav.find((entry) => entry.id === id)!; return <button key={item.id} onClick={() => { setPage(item.id); setMobileMoreOpen(false); }} className="flex items-center gap-3 rounded-2xl bg-slate-50 p-4 text-left text-sm font-bold text-ink"><item.icon size={20} className="text-moss" />{item.label}</button>; })}
+              <button onClick={() => { setMobileMoreOpen(false); setModal("connection"); }} className="col-span-2 flex items-center gap-3 rounded-2xl bg-[#edf6f2] p-4 text-left text-sm font-bold text-moss"><Smartphone size={20} />Sinkron antar perangkat</button>
+              <button onClick={() => { setMobileMoreOpen(false); setTutorialOpen(true); }} className="col-span-2 flex items-center gap-3 rounded-2xl bg-slate-50 p-4 text-left text-sm font-bold text-slate-700"><CircleHelp size={20} className="text-moss" />Cara pakai</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modals Dialog */}
       {modal === "stock" && (
         <StockModal
           onClose={() => setModal(null)}
           onSave={(stock) => {
-            setStocks((v) => [stock, ...v]);
-            setTransactions((v) => [
+            const nextStocks = [stock, ...stocks];
+            const nextTransactions: Transaction[] = [
               {
                 id: crypto.randomUUID(),
                 date: new Date().toISOString().slice(0, 10),
@@ -571,13 +795,21 @@ function App() {
                 amount: stock.quantity * stock.buyPrice,
                 method: "Tunai",
               },
-              ...v,
-            ]);
+              ...transactions,
+            ];
+            commitState(
+              {
+                ...snapshot,
+                stocks: nextStocks,
+                transactions: nextTransactions,
+              },
+              `Bahan ${stock.name} berhasil ditambahkan`,
+            );
             setModal(null);
-            sync();
           }}
         />
       )}
+
       {modal === "restock" && restockTarget && (
         <RestockModal
           stock={restockTarget}
@@ -586,19 +818,17 @@ function App() {
             setRestockTarget(null);
           }}
           onSave={(quantity, buyPrice, method) => {
-            setStocks((items) =>
-              items.map((stock) =>
-                stock.id === restockTarget.id
-                  ? {
-                      ...stock,
-                      quantity: stock.quantity + quantity,
-                      buyPrice,
-                      updatedAt: "Baru saja",
-                    }
-                  : stock,
-              ),
+            const nextStocks = stocks.map((stock) =>
+              stock.id === restockTarget.id
+                ? {
+                    ...stock,
+                    quantity: stock.quantity + quantity,
+                    buyPrice,
+                    updatedAt: "Baru saja",
+                  }
+                : stock,
             );
-            setTransactions((items) => [
+            const nextTransactions: Transaction[] = [
               {
                 id: crypto.randomUUID(),
                 date: new Date().toISOString().slice(0, 10),
@@ -607,14 +837,22 @@ function App() {
                 amount: quantity * buyPrice,
                 method,
               },
-              ...items,
-            ]);
+              ...transactions,
+            ];
+            commitState(
+              {
+                ...snapshot,
+                stocks: nextStocks,
+                transactions: nextTransactions,
+              },
+              `Stok ${restockTarget.name} bertambah ${quantity} ${restockTarget.unit}`,
+            );
             setModal(null);
             setRestockTarget(null);
-            sync();
           }}
         />
       )}
+
       {modal === "edit-stock" && editStockTarget && (
         <EditStockModal
           stock={editStockTarget}
@@ -623,27 +861,41 @@ function App() {
             setEditStockTarget(null);
           }}
           onSave={(updated) => {
-            setStocks((items) =>
-              items.map((stock) => (stock.id === updated.id ? updated : stock)),
+            const nextStocks = stocks.map((stock) =>
+              stock.id === updated.id ? updated : stock,
+            );
+            commitState(
+              {
+                ...snapshot,
+                stocks: nextStocks,
+              },
+              `Bahan ${updated.name} berhasil diperbarui`,
             );
             setModal(null);
             setEditStockTarget(null);
-            sync();
           }}
         />
       )}
+
       {modal === "menu" && (
         <MenuModal
           stocks={stocks}
           recipes={recipes}
           onClose={() => setModal(null)}
           onSave={(product) => {
-            setProducts((v) => [product, ...v]);
+            const nextProducts = [product, ...products];
+            commitState(
+              {
+                ...snapshot,
+                products: nextProducts,
+              },
+              `Menu ${product.name} berhasil dibuat`,
+            );
             setModal(null);
-            sync();
           }}
         />
       )}
+
       {modal === "edit-menu" && editMenuTarget && (
         <MenuModal
           stocks={stocks}
@@ -654,28 +906,40 @@ function App() {
             setEditMenuTarget(null);
           }}
           onSave={(updated) => {
-            setProducts((items) =>
-              items.map((product) =>
-                product.id === updated.id ? updated : product,
-              ),
+            const nextProducts = products.map((product) =>
+              product.id === updated.id ? updated : product,
+            );
+            commitState(
+              {
+                ...snapshot,
+                products: nextProducts,
+              },
+              `Menu ${updated.name} berhasil diperbarui`,
             );
             setModal(null);
             setEditMenuTarget(null);
-            sync();
           }}
         />
       )}
+
       {modal === "recipe" && (
         <RecipeModal
           stocks={stocks}
           onClose={() => setModal(null)}
           onSave={(recipe) => {
-            setRecipes((items) => [recipe, ...items]);
+            const nextRecipes = [recipe, ...recipes];
+            commitState(
+              {
+                ...snapshot,
+                recipes: nextRecipes,
+              },
+              `Bahan ${recipe.name} berhasil disimpan`,
+            );
             setModal(null);
-            sync();
           }}
         />
       )}
+
       {modal === "edit-recipe" && editRecipeTarget && (
         <RecipeModal
           stocks={stocks}
@@ -685,30 +949,43 @@ function App() {
             setEditRecipeTarget(null);
           }}
           onSave={(updated) => {
-            setRecipes((items) =>
-              items.map((recipe) =>
-                recipe.id === updated.id ? updated : recipe,
-              ),
+            const nextRecipes = recipes.map((recipe) =>
+              recipe.id === updated.id ? updated : recipe,
+            );
+            commitState(
+              {
+                ...snapshot,
+                recipes: nextRecipes,
+              },
+              `Bahan ${updated.name} berhasil diperbarui`,
             );
             setModal(null);
             setEditRecipeTarget(null);
-            sync();
           }}
         />
       )}
+
       {modal === "finance" && (
         <FinanceModal
           onClose={() => setModal(null)}
           onSave={(t) => {
-            setTransactions((v) => [t, ...v]);
+            const nextTransactions = [t, ...transactions];
+            commitState(
+              {
+                ...snapshot,
+                transactions: nextTransactions,
+              },
+              `Transaksi berhasil dicatat`,
+            );
             setModal(null);
-            sync();
           }}
         />
       )}
+
       {modal === "receipt" && lastSale && (
         <ReceiptModal sale={lastSale} onClose={() => setModal(null)} />
       )}
+
       {modal === "connection" && (
         <ConnectionModal
           currentCode={accessCode}
@@ -718,50 +995,63 @@ function App() {
           onDisconnect={disconnect}
         />
       )}
+      {tutorialOpen && (
+        <TutorialModal
+          onClose={() => {
+            localStorage.setItem("app-tutorial-seen", "true");
+            setTutorialOpen(false);
+          }}
+        />
+      )}
+
       {deleteTarget && (
         <DeleteModal
           target={deleteTarget}
           onClose={() => setDeleteTarget(null)}
           onDelete={() => {
+            let nextStocks = stocks;
+            let nextProducts = products;
+            let nextRecipes = recipes;
+
             if (deleteTarget.type === "stock") {
-              setStocks((items) =>
-                items.filter((stock) => stock.id !== deleteTarget.id),
-              );
-              setProducts((items) =>
-                items.map((product) => ({
-                  ...product,
-                  ingredients: product.ingredients.filter(
-                    (ingredient) => ingredient.stockId !== deleteTarget.id,
-                  ),
-                })),
-              );
-              setRecipes((items) =>
-                items.map((recipe) => ({
-                  ...recipe,
-                  ingredients: recipe.ingredients.filter(
-                    (ingredient) => ingredient.stockId !== deleteTarget.id,
-                  ),
-                })),
-              );
-            } else if (deleteTarget.type === "recipe") {
-              setRecipes((items) =>
-                items.filter((recipe) => recipe.id !== deleteTarget.id),
-              );
-              setProducts((items) =>
-                items.map((product) =>
-                  product.recipeId === deleteTarget.id
-                    ? { ...product, recipeId: undefined }
-                    : product,
+              nextStocks = stocks.filter((stock) => stock.id !== deleteTarget.id);
+              nextProducts = products.map((product) => ({
+                ...product,
+                ingredients: product.ingredients.filter(
+                  (ingredient) => ingredient.stockId !== deleteTarget.id,
                 ),
+              }));
+              nextRecipes = recipes.map((recipe) => ({
+                ...recipe,
+                ingredients: recipe.ingredients.filter(
+                  (ingredient) => ingredient.stockId !== deleteTarget.id,
+                ),
+              }));
+            } else if (deleteTarget.type === "recipe") {
+              nextRecipes = recipes.filter(
+                (recipe) => recipe.id !== deleteTarget.id,
+              );
+              nextProducts = products.map((product) =>
+                product.recipeId === deleteTarget.id
+                  ? { ...product, recipeId: undefined }
+                  : product,
               );
             } else {
-              setProducts((items) =>
-                items.filter((product) => product.id !== deleteTarget.id),
+              nextProducts = products.filter(
+                (product) => product.id !== deleteTarget.id,
               );
             }
-            setNotice(`${deleteTarget.name} dihapus`);
+
+            commitState(
+              {
+                ...snapshot,
+                stocks: nextStocks,
+                products: nextProducts,
+                recipes: nextRecipes,
+              },
+              `${deleteTarget.name} dihapus`,
+            );
             setDeleteTarget(null);
-            sync();
           }}
         />
       )}
