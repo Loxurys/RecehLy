@@ -671,8 +671,8 @@ export function MenuModal({
   const [source, setSource] = useState<"recipe" | "direct">(
     product?.recipeId ? "recipe" : "direct",
   );
-  const [recipeId, setRecipeId] = useState(
-    product?.recipeId || recipes[0]?.id || "",
+  const [recipeIds, setRecipeIds] = useState<string[]>(
+    product?.recipeIds || (product?.recipeId ? [product.recipeId] : []),
   );
   const [recipePortions, setRecipePortions] = useState(
     String(product?.recipePortions || 1),
@@ -688,7 +688,12 @@ export function MenuModal({
   );
   const [error, setError] = useState("");
 
-  const selectedRecipe = recipes.find((recipe) => recipe.id === recipeId);
+  const selectedRecipes = recipes.filter((recipe) => recipeIds.includes(recipe.id));
+  const toggleRecipe = (id: string) => {
+    setRecipeIds((current) =>
+      current.includes(id) ? current.filter((item) => item !== id) : [...current, id],
+    );
+  };
 
   const selectPhoto = (file?: File) => {
     if (!file) return;
@@ -760,18 +765,26 @@ export function MenuModal({
     let finalIngredients: Ingredient[] = [];
 
     if (source === "recipe") {
-      if (!selectedRecipe) {
-        setError("Pilih resep terlebih dahulu.");
+      if (!selectedRecipes.length) {
+        setError("Pilih minimal satu bahan dasar terlebih dahulu.");
         return;
       }
-      if (!selectedRecipe.ingredients.length) {
-        setError("Resep ini belum memiliki bahan. Isi bahan pada menu Resep terlebih dahulu.");
+      if (selectedRecipes.some((recipe) => !recipe.ingredients.length)) {
+        setError("Salah satu bahan dasar belum memiliki bahan baku.");
         return;
       }
-      finalIngredients = selectedRecipe.ingredients.map((ingredient) => ({
-        ...ingredient,
-        quantity: ingredient.quantity * portions,
-      }));
+      const combined = new Map<string, Ingredient>();
+      selectedRecipes.forEach((recipe) => {
+        recipe.ingredients.forEach((ingredient) => {
+          const key = `${ingredient.stockId}:${ingredient.unit}`;
+          const current = combined.get(key);
+          combined.set(key, {
+            ...ingredient,
+            quantity: (current?.quantity || 0) + ingredient.quantity * portions,
+          });
+        });
+      });
+      finalIngredients = [...combined.values()];
     } else {
       if (!ingredients.length) {
         setError("Tambahkan minimal 1 bahan untuk menu ini.");
@@ -791,7 +804,8 @@ export function MenuModal({
       name: name.trim(),
       price: p,
       imageUrl: imageUrl.trim() || undefined,
-      recipeId: source === "recipe" ? recipeId : undefined,
+      recipeId: source === "recipe" ? recipeIds[0] : undefined,
+      recipeIds: source === "recipe" ? recipeIds : undefined,
       recipePortions: source === "recipe" ? portions : undefined,
       ingredients: finalIngredients,
     });
@@ -856,7 +870,7 @@ export function MenuModal({
                   : "text-slate-500 hover:text-ink"
               }`}
             >
-              Pakai resep
+              Pakai bahan dasar
             </button>
             <button
               type="button"
@@ -880,18 +894,23 @@ export function MenuModal({
               </p>
             ) : (
               <>
-                <Field label="Pilih resep">
-                  <select
-                    value={recipeId}
-                    onChange={(event) => setRecipeId(event.target.value)}
-                  >
-                    {recipes.map((recipe) => (
-                      <option key={recipe.id} value={recipe.id}>
-                        {recipe.name} ({recipe.category})
-                      </option>
-                    ))}
-                  </select>
-                </Field>
+                <p className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-500">
+                  Pilih satu atau beberapa bahan dasar
+                </p>
+                <div className="max-h-48 space-y-2 overflow-y-auto">
+                  {recipes.map((recipe) => (
+                    <label key={recipe.id} className="flex cursor-pointer items-center gap-2 rounded-lg bg-white px-3 py-2 text-sm shadow-2xs">
+                      <input
+                        type="checkbox"
+                        checked={recipeIds.includes(recipe.id)}
+                        onChange={() => toggleRecipe(recipe.id)}
+                        className="accent-moss"
+                      />
+                      <span className="flex-1 font-medium text-slate-700">{recipe.name}</span>
+                      <span className="text-[10px] text-slate-400">{recipe.category}</span>
+                    </label>
+                  ))}
+                </div>
                 <div className="mt-3">
                   <Field label="Jumlah porsi resep per sajian menu">
                     <input
@@ -905,22 +924,18 @@ export function MenuModal({
                     />
                   </Field>
                 </div>
-                {selectedRecipe && (
+                {selectedRecipes.length > 0 && (
                   <div className="mt-3 border-t border-slate-200/80 pt-2.5">
-                    <p className="text-xs font-bold text-slate-600">Bahan dalam resep ini:</p>
+                    <p className="text-xs font-bold text-slate-600">
+                      {selectedRecipes.length} bahan dasar dipilih
+                    </p>
                     <div className="mt-1.5 space-y-1">
-                      {selectedRecipe.ingredients.map((ing) => {
-                        const st = stocks.find((s) => s.id === ing.stockId);
-                        const mult = Number(recipePortions) || 1;
-                        return (
-                          <div key={ing.stockId} className="flex justify-between text-xs text-slate-600">
-                            <span>{st?.name || "Bahan"}</span>
-                            <span className="font-semibold">
-                              {(ing.quantity * mult).toLocaleString("id-ID")} {ing.unit || st?.unit}
-                            </span>
-                          </div>
-                        );
-                      })}
+                      {selectedRecipes.map((recipe) => (
+                        <div key={recipe.id} className="flex justify-between text-xs text-slate-600">
+                          <span>{recipe.name}</span>
+                          <span className="font-semibold">{recipe.ingredients.length} bahan</span>
+                        </div>
+                      ))}
                     </div>
                   </div>
                 )}
@@ -1353,21 +1368,9 @@ export function ReceiptModal({
         </p>
       </div>
       <div className="mt-5">
-        <Field label="Kirim e-Struk via WhatsApp (Opsional)">
-          <input
-            type="tel"
-            inputMode="tel"
-            value={phone}
-            onChange={(e) => setPhone(e.target.value)}
-            placeholder="Nomor HP WhatsApp (Contoh: 08123456789)"
-          />
-        </Field>
         <div className="mt-4 flex gap-3">
           <Button secondary onClick={onClose} full>
             Selesai
-          </Button>
-          <Button onClick={send} full>
-            <Smartphone size={18} /> Kirim WhatsApp
           </Button>
         </div>
       </div>
@@ -1460,6 +1463,7 @@ export function TutorialModal({ onClose }: { onClose: () => void }) {
   );
 }
 
+
 export function ConnectionModal({
   currentCode,
   busy,
@@ -1473,57 +1477,99 @@ export function ConnectionModal({
   onConnect: (code: string) => void;
   onDisconnect: () => void;
 }) {
-  const [code, setCode] = useState(currentCode || makeAccessCode());
-  const valid = code.length >= 6;
+  const [code, setCode] = useState(currentCode || "");
 
-  const handleSubmit = (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
-    if (valid && !busy) {
-      onConnect(code);
-    }
+  const handleCreate = () => {
+    const newCode = makeAccessCode();
+    setCode(newCode);
+    onConnect(newCode);
+  };
+
+  const handleConnect = (e: React.FormEvent) => {
+    e.preventDefault();
+
+    const normalized = normalizeAccessCode(code);
+    if (normalized.length < 6 || busy) return;
+
+    onConnect(normalized);
   };
 
   return (
-    <Modal title="Sinkronisasi antar perangkat" onClose={onClose}>
-      <form onSubmit={handleSubmit} className="grid gap-4">
-        <div className="rounded-xl bg-blue-50/70 p-3.5 text-xs text-blue-900 leading-relaxed">
-          Pakai kode yang sama di setiap perangkat. Data akan tersimpan dan diperbarui dari database online.
+    <Modal title="Sinkronisasi perangkat" onClose={onClose}>
+      <div className="grid gap-4">
+
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-3.5 text-xs leading-5 text-amber-900">
+          <p className="font-bold">Sinkronisasi sementara tidak tersedia di Netlify</p>
+          <p className="mt-1">
+            Saat ini, fitur sinkronisasi sementara belum dapat digunakan karena adanya perubahan teknis pada layanan Netlify.
+            Jija ingin menggunkan fitur sinkronisasi, aplikasi dapat dijalankan secara lokal dengan mengikuti panduan instalasi dan penggunaan yang tersedia pada file README.
+            Terima kasih atas perhatian dan pengertiannya.
+
+            "Hiraukan pesan ini jika dijalankan secara lokal"
+          </p>
         </div>
-        <Field label="Kode sinkronisasi (6–12 karakter)">
-          <input
-            value={code}
-            onChange={(event) => setCode(normalizeAccessCode(event.target.value))}
-            maxLength={12}
-            className="font-mono uppercase tracking-[0.2em] font-bold text-center text-lg"
-            placeholder="CONTOH12"
-            autoFocus
-          />
-        </Field>
-        <div className="flex items-center justify-between">
+
+        {/* BUAT RUANG */}
+        <div className="rounded-xl border border-line p-4">
+          <p className="font-bold text-ink text-sm">
+            Buat sinkronisasi baru
+          </p>
+          <p className="mt-1 text-xs text-slate-500">
+            Buat kode baru untuk digunakan bersama perangkat lain.
+          </p>
+
           <button
             type="button"
-            onClick={() => setCode(makeAccessCode())}
-            className="text-xs font-bold text-moss hover:underline"
+            onClick={handleCreate}
+            disabled={busy}
+            className="mt-3 w-full rounded-xl bg-moss px-4 py-3 text-sm font-bold text-white disabled:opacity-50"
           >
-            + Buat kode acak otomatis
+            {busy ? "Memproses..." : "+ Buat dan sambungkan"}
           </button>
-          {currentCode && (
-            <span className="text-xs font-semibold text-emerald-700">
-              Aktif: {currentCode}
-            </span>
-          )}
         </div>
-        <div className="flex flex-col gap-2 pt-2 sm:flex-row">
-          <Button disabled={!valid || busy} onClick={() => onConnect(code)} full>
-            {busy ? "Menyambungkan..." : currentCode === code ? "Segarkan koneksi" : "Sambungkan perangkat"}
-          </Button>
-          {currentCode && (
-            <Button secondary onClick={onDisconnect} full>
-              Gunakan data perangkat
-            </Button>
-          )}
+
+        <div className="flex items-center gap-3">
+          <div className="h-px flex-1 bg-line" />
+          <span className="text-xs text-slate-400">ATAU</span>
+          <div className="h-px flex-1 bg-line" />
         </div>
-      </form>
+
+        {/* SAMBUNGKAN */}
+        <form onSubmit={handleConnect} className="grid gap-3">
+          <Field label="Kode sinkronisasi">
+            <input
+              value={code}
+              onChange={(e) =>
+                setCode(normalizeAccessCode(e.target.value))
+              }
+              maxLength={12}
+              placeholder="MASUKKAN KODE"
+              className="text-center font-mono font-bold uppercase tracking-widest"
+            />
+          </Field>
+          <button
+            type="submit"
+            disabled={code.length < 6 || busy}
+            className="w-full rounded-xl bg-moss px-4 py-3 text-sm font-bold text-white disabled:opacity-50"
+          >
+            {busy ? "Menyambungkan..." : "Sambungkan perangkat"}
+          </button>
+        </form>
+        {currentCode && (
+          <div className="rounded-xl bg-emerald-50 p-3 text-xs text-emerald-800">
+            <p className="font-bold">Terhubung</p>
+            <p className="mt-1 font-mono">{currentCode}</p>
+            <button
+              type="button"
+              onClick={onDisconnect}
+              className="mt-2 font-bold text-rose-600"
+            >
+              Putuskan koneksi
+            </button>
+          </div>
+        )}
+
+      </div>
     </Modal>
   );
 }

@@ -1,20 +1,38 @@
-export type StockUnit = "kg" | "ons" | "gram" | "liter" | "ml" | "pcs" | "bungkus" | "botol" | "sachet";
-export type IngredientUnit = StockUnit;
+export type IngredientUnit =
+  | "kg"
+  | "ons"
+  | "gram"
+  | "liter"
+  | "ml"
+  | "pcs"
+  | "bungkus"
+  | "botol"
+  | "sachet";
+
+export type RecipeCategory = "Makanan" | "Minuman" | "Saus" | "Komponen";
+export type Page = "cashier" | "dashboard" | "stock" | "menu" | "finance" | "report";
+
+export interface Ingredient {
+  stockId: string;
+  quantity: number;
+  unit: IngredientUnit;
+}
 
 export interface Stock {
   id: string;
   name: string;
   quantity: number;
-  unit: StockUnit;
+  unit: IngredientUnit;
   buyPrice: number;
   minimum: number;
   updatedAt: string;
 }
 
-export interface Ingredient {
-  stockId: string;
-  quantity: number;
-  unit?: IngredientUnit;
+export interface Recipe {
+  id: string;
+  name: string;
+  category: RecipeCategory;
+  ingredients: Ingredient[];
 }
 
 export interface Product {
@@ -23,15 +41,14 @@ export interface Product {
   price: number;
   imageUrl?: string;
   recipeId?: string;
+  recipeIds?: string[];
   recipePortions?: number;
   ingredients: Ingredient[];
 }
 
-export interface Recipe {
-  id: string;
-  name: string;
-  category: "Makanan" | "Minuman";
-  ingredients: Ingredient[];
+export interface CartItem {
+  product: Product;
+  quantity: number;
 }
 
 export interface Transaction {
@@ -44,12 +61,129 @@ export interface Transaction {
   category?: string;
 }
 
-export interface CartItem {
-  product: Product;
-  quantity: number;
+// Format Tanggal Lokal (WIB / Local Timezone) - Mencegah tanggal transaksi mundur ke kemarin
+export function getLocalDateString(): string {
+  const d = new Date();
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
-export type Page = "cashier" | "dashboard" | "stock" | "menu" | "finance" | "report";
+export const selectableUnits = (stock?: Stock): IngredientUnit[] => {
+  if (!stock) return ["gram", "kg", "ons", "ml", "liter", "pcs", "bungkus", "botol", "sachet"];
+  const u = stock.unit;
+  if (u === "kg" || u === "ons" || u === "gram") return ["gram", "ons", "kg"];
+  if (u === "liter" || u === "ml") return ["ml", "liter"];
+  return [u];
+};
+
+export function rupiah(value: number): string {
+  return "Rp " + Math.round(value || 0).toLocaleString("id-ID");
+}
+
+export function grams(target: number | Stock, unit?: IngredientUnit): number {
+  if (typeof target === "object" && target !== null) {
+    return grams(target.quantity, target.unit);
+  }
+  const q = Number(target) || 0;
+  const u = unit || "gram";
+  switch (u) {
+    case "kg":
+      return q * 1000;
+    case "ons":
+      return q * 100;
+    case "liter":
+      return q * 1000;
+    case "ml":
+    case "gram":
+    default:
+      return q;
+  }
+}
+
+export function fromBaseUnits(quantity: number, targetUnit: IngredientUnit): number {
+  const q = Number(quantity) || 0;
+  let result = q;
+
+  switch (targetUnit) {
+    case "kg":
+      result = q / 1000;
+      break;
+    case "ons":
+      result = q / 100;
+      break;
+    case "liter":
+      result = q / 1000;
+      break;
+    case "ml":
+    case "gram":
+    default:
+      result = q;
+      break;
+  }
+
+  return Math.round(result * 1000) / 1000;
+}
+
+export const usedStockUnits = (ingredient: Ingredient, stock?: Stock): number => {
+  if (!ingredient) return 0;
+  const ingQty = ingredient.quantity || 0;
+  const ingUnit = ingredient.unit;
+  const stockUnit = stock?.unit || ingUnit;
+
+  const baseGram = grams(ingQty, ingUnit);
+  return fromBaseUnits(baseGram, stockUnit);
+};
+
+export function recipeUnit(ingredient: Ingredient, stock?: Stock): string {
+  if (!ingredient) return "";
+  return ingredient.unit || stock?.unit || "";
+}
+
+export function calculateProductHpp(
+  ingredientsOrProduct: Ingredient[] | Product,
+  stocks: Stock[]
+): number {
+  const ingredients = Array.isArray(ingredientsOrProduct)
+    ? ingredientsOrProduct
+    : ingredientsOrProduct?.ingredients || [];
+
+  if (!ingredients.length) return 0;
+
+  return ingredients.reduce((total, ing) => {
+    const stock = stocks.find((s) => s.id === ing.stockId);
+    if (!stock || stock.quantity <= 0) return total;
+
+    const stockBaseQty = grams(stock.quantity, stock.unit);
+    const costPerBaseUnit = stockBaseQty > 0 ? stock.buyPrice / stockBaseQty : 0;
+    const ingBaseQty = grams(ing.quantity, ing.unit);
+
+    return total + ingBaseQty * costPerBaseUnit;
+  }, 0);
+}
+
+const QRIS_STORAGE_KEY = "recehly_qris_image";
+
+export function loadQrisImage(): string {
+  try {
+    return localStorage.getItem(QRIS_STORAGE_KEY) || "";
+  } catch {
+    return "";
+  }
+}
+
+export function saveQrisImage(dataUrl: string): void {
+  try {
+    if (dataUrl) {
+      localStorage.setItem(QRIS_STORAGE_KEY, dataUrl);
+    } else {
+      localStorage.removeItem(QRIS_STORAGE_KEY);
+    }
+  } catch (err) {
+    console.error("Gagal menyimpan QRIS:", err);
+  }
+}
 
 export const initialStock: Stock[] = [
   { id: "s1", name: "Daging Sapi", quantity: 5, unit: "kg", buyPrice: 120000, minimum: 2, updatedAt: "Hari ini" },
@@ -110,7 +244,7 @@ export const initialProducts: Product[] = [
 export const initialTransactions: Transaction[] = [
   {
     id: "t1",
-    date: new Date().toISOString().slice(0, 10),
+    date: getLocalDateString(),
     type: "income",
     title: "Bakso Sapi Spesial x2, Es Teh Manis Jumbo x2",
     amount: 50000,
@@ -120,75 +254,9 @@ export const initialTransactions: Transaction[] = [
 
 export function load<T>(key: string, fallback: T): T {
   try {
-    const item = localStorage.getItem(key);
-    return item ? JSON.parse(item) : fallback;
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : fallback;
   } catch {
     return fallback;
   }
 }
-
-export function rupiah(num: number): string {
-  return new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 }).format(num);
-}
-
-export function grams(stock: Stock): number {
-  switch (stock.unit) {
-    case "kg":
-    case "liter":
-      return stock.quantity * 1000;
-    case "ons":
-      return stock.quantity * 100;
-    default:
-      return stock.quantity;
-  }
-}
-
-export function usedStockUnits(ingredient: Ingredient, stock: Stock): number {
-  const ingUnit = ingredient.unit || stock.unit;
-  if (stock.unit === "kg" || stock.unit === "liter") {
-    if (ingUnit === "gram" || ingUnit === "ml") return ingredient.quantity;
-    if (ingUnit === "ons") return ingredient.quantity * 100;
-    if (ingUnit === "kg" || ingUnit === "liter") return ingredient.quantity * 1000;
-  }
-  return ingredient.quantity;
-}
-
-export function fromBaseUnits(baseQty: number, unit: StockUnit): number {
-  if (unit === "kg" || unit === "liter") return baseQty / 1000;
-  if (unit === "ons") return baseQty / 100;
-  return baseQty;
-}
-
-export function selectableUnits(stock?: Stock): IngredientUnit[] {
-  if (!stock) return ["gram"];
-  if (stock.unit === "kg" || stock.unit === "gram" || stock.unit === "ons") {
-    return ["gram", "kg", "ons"];
-  }
-  if (stock.unit === "liter" || stock.unit === "ml") {
-    return ["ml", "liter"];
-  }
-  return [stock.unit];
-}
-
-export function recipeUnit(ingredient: Ingredient, stock?: Stock): IngredientUnit {
-  return ingredient.unit || stock?.unit || "gram";
-}
-
-export function calculateProductHpp(ingredients: Ingredient[], stocks: Stock[]): number {
-  return ingredients.reduce((total, ing) => {
-    const st = stocks.find((s) => s.id === ing.stockId);
-    if (!st) return total;
-    const baseCostPerGram = st.buyPrice / (grams(st) / (st.quantity || 1));
-    const usedGram = usedStockUnits(ing, st);
-    return total + baseCostPerGram * usedGram;
-  }, 0);
-}
-
-// Helper Penyimpanan QRIS Toko ke LocalStorage
-export const loadQrisImage = (): string => {
-  return localStorage.getItem("app-qris-image") || "";
-};
-
-export const saveQrisImage = (dataUrl: string): void => {
-  localStorage.setItem("app-qris-image", dataUrl);
-};

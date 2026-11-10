@@ -1,324 +1,330 @@
-import "dotenv/config";
-import express from "express";
-import { Pool, type PoolClient } from "pg";
-import { randomUUID } from "node:crypto";
-
-export type Ingredient = { stockId: string; quantity: number; unit?: "gram" | "kg" | "pcs" };
-export type State = {
-  stocks: Array<{ id: string; name: string; quantity: number; unit: "kg" | "ons" | "gram" | "liter" | "ml" | "pcs" | "bungkus" | "botol" | "sachet"; buyPrice: number; minimum: number; updatedAt: string }>;
-  recipes: Array<{ id: string; name: string; category: "Makanan" | "Minuman"; ingredients: Ingredient[] }>;
-  products: Array<{ id: string; name: string; price: number; imageUrl?: string; ingredients: Ingredient[]; recipeId?: string; recipePortions?: number }>;
-  transactions: Array<{ id: string; date: string; type: "income" | "expense"; title: string; amount: number; method: string }>;
-  demoData: boolean;
-};
-
-const databaseUrl = process.env.DATABASE_URL;
-export const pool = databaseUrl ? new Pool({
-  connectionString: databaseUrl,
-  ssl: { rejectUnauthorized: false },
-  max: 5,
-  idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 5000,
-}) : null;
+import express, { Request, Response, NextFunction } from "express";
+import { Pool } from "pg";
 
 export const app = express();
-app.use(express.json({ limit: "5mb" }));
+app.use(express.json({ limit: "10mb" }));
+app.use(express.urlencoded({ limit: "10mb", extended: true }));
 
-const validCode = (code: string) => /^[A-Z0-9]{6,12}$/.test(code);
-const asNumber = (value: unknown) => Number(value) || 0;
-const unitFactor = (unit: string) => unit === "kg" || unit === "liter" ? 1000 : unit === "ons" ? 100 : 1;
-const ingredientBaseUnit = (quantity: number, unit: string) => quantity * unitFactor(unit);
-const stockBaseUnit = (quantity: number, unit: string) => quantity * unitFactor(unit);
+const databaseUrl = process.env.DATABASE_URL;
 
-let tablesReadyPromise: Promise<void> | null = null;
+export const pool = databaseUrl
+  ? new Pool({
+      connectionString: databaseUrl,
+      ssl: {
+        rejectUnauthorized: false,
+      },
+      max: 1,
+      idleTimeoutMillis: 3000,
+      connectionTimeoutMillis: 10000,
+    })
+  : null;
+
+let tablesEnsured = false;
 
 export async function ensureTables() {
-  if (!pool) return;
-  if (!tablesReadyPromise) {
-    tablesReadyPromise = (async () => {
-      await pool.query(`
-        CREATE TABLE IF NOT EXISTS app_stores (
-          access_code VARCHAR(12) PRIMARY KEY,
-          demo_data BOOLEAN NOT NULL DEFAULT TRUE,
-          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-        );
-        CREATE TABLE IF NOT EXISTS stock_items (
-          store_code VARCHAR(12) NOT NULL REFERENCES app_stores(access_code) ON DELETE CASCADE,
-          id TEXT NOT NULL, name TEXT NOT NULL,
-          quantity NUMERIC NOT NULL CHECK (quantity >= 0),
-          unit TEXT NOT NULL CHECK (unit IN ('kg', 'ons', 'gram', 'liter', 'ml', 'pcs', 'bungkus', 'botol', 'sachet')),
-          buy_price NUMERIC NOT NULL CHECK (buy_price >= 0),
-          minimum_quantity NUMERIC NOT NULL DEFAULT 0 CHECK (minimum_quantity >= 0),
-          updated_label TEXT NOT NULL,
-          PRIMARY KEY (store_code, id)
-        );
-        CREATE TABLE IF NOT EXISTS recipes (
-          store_code VARCHAR(12) NOT NULL REFERENCES app_stores(access_code) ON DELETE CASCADE,
-          id TEXT NOT NULL, name TEXT NOT NULL,
-          category TEXT NOT NULL CHECK (category IN ('Makanan', 'Minuman')),
-          PRIMARY KEY (store_code, id)
-        );
-        CREATE TABLE IF NOT EXISTS recipe_ingredients (
-          store_code VARCHAR(12) NOT NULL, recipe_id TEXT NOT NULL, stock_id TEXT NOT NULL,
-          quantity NUMERIC NOT NULL CHECK (quantity >= 0),
-          unit TEXT NOT NULL CHECK (unit IN ('kg', 'ons', 'gram', 'liter', 'ml', 'pcs', 'bungkus', 'botol', 'sachet')),
-          PRIMARY KEY (store_code, recipe_id, stock_id),
-          FOREIGN KEY (store_code, recipe_id) REFERENCES recipes(store_code, id) ON DELETE CASCADE,
-          FOREIGN KEY (store_code, stock_id) REFERENCES stock_items(store_code, id) ON DELETE CASCADE
-        );
-        CREATE TABLE IF NOT EXISTS menu_items (
-          store_code VARCHAR(12) NOT NULL REFERENCES app_stores(access_code) ON DELETE CASCADE,
-          id TEXT NOT NULL, name TEXT NOT NULL,
-          price NUMERIC NOT NULL CHECK (price >= 0), image_url TEXT, recipe_id TEXT, recipe_portions NUMERIC,
-          PRIMARY KEY (store_code, id),
-          FOREIGN KEY (store_code, recipe_id) REFERENCES recipes(store_code, id) ON DELETE SET NULL
-        );
-        CREATE TABLE IF NOT EXISTS menu_ingredients (
-          store_code VARCHAR(12) NOT NULL, menu_id TEXT NOT NULL, stock_id TEXT NOT NULL,
-          quantity NUMERIC NOT NULL CHECK (quantity >= 0),
-          unit TEXT NOT NULL CHECK (unit IN ('kg', 'ons', 'gram', 'liter', 'ml', 'pcs', 'bungkus', 'botol', 'sachet')),
-          PRIMARY KEY (store_code, menu_id, stock_id),
-          FOREIGN KEY (store_code, menu_id) REFERENCES menu_items(store_code, id) ON DELETE CASCADE,
-          FOREIGN KEY (store_code, stock_id) REFERENCES stock_items(store_code, id) ON DELETE CASCADE
-        );
-        CREATE TABLE IF NOT EXISTS financial_transactions (
-          store_code VARCHAR(12) NOT NULL REFERENCES app_stores(access_code) ON DELETE CASCADE,
-          id TEXT NOT NULL, transaction_date DATE NOT NULL,
-          type TEXT NOT NULL CHECK (type IN ('income', 'expense')),
-          title TEXT NOT NULL, amount NUMERIC NOT NULL CHECK (amount >= 0), method TEXT NOT NULL,
-          PRIMARY KEY (store_code, id)
-        );
-      `);
+  if (!pool || tablesEnsured) return;
+  let client;
+  try {
+    client = await pool.connect();
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS app_stores (
+        code VARCHAR(32) PRIMARY KEY,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
 
-      try {
-        await pool.query(`
-          ALTER TABLE recipe_ingredients DROP CONSTRAINT IF EXISTS recipe_ingredients_quantity_check;
-          ALTER TABLE recipe_ingredients ADD CONSTRAINT recipe_ingredients_quantity_check CHECK (quantity >= 0);
-          ALTER TABLE menu_ingredients DROP CONSTRAINT IF EXISTS menu_ingredients_quantity_check;
-          ALTER TABLE menu_ingredients ADD CONSTRAINT menu_ingredients_quantity_check CHECK (quantity >= 0);
-          ALTER TABLE stock_items DROP CONSTRAINT IF EXISTS stock_items_unit_check;
-          ALTER TABLE stock_items ADD CONSTRAINT stock_items_unit_check CHECK (unit IN ('kg', 'ons', 'gram', 'liter', 'ml', 'pcs', 'bungkus', 'botol', 'sachet'));
-          ALTER TABLE recipe_ingredients DROP CONSTRAINT IF EXISTS recipe_ingredients_unit_check;
-          ALTER TABLE recipe_ingredients ADD CONSTRAINT recipe_ingredients_unit_check CHECK (unit IN ('kg', 'ons', 'gram', 'liter', 'ml', 'pcs', 'bungkus', 'botol', 'sachet'));
-          ALTER TABLE menu_ingredients DROP CONSTRAINT IF EXISTS menu_ingredients_unit_check;
-          ALTER TABLE menu_ingredients ADD CONSTRAINT menu_ingredients_unit_check CHECK (unit IN ('kg', 'ons', 'gram', 'liter', 'ml', 'pcs', 'bungkus', 'botol', 'sachet'));
-          ALTER TABLE menu_items ADD COLUMN IF NOT EXISTS image_url TEXT;
-        `);
-      } catch {
-        // Constraints already applied
-      }
-    })();
+      CREATE TABLE IF NOT EXISTS stock_items (
+        id VARCHAR(64) NOT NULL,
+        store_code VARCHAR(32) NOT NULL,
+        name VARCHAR(255) NOT NULL,
+        quantity NUMERIC(12, 3) NOT NULL DEFAULT 0,
+        unit VARCHAR(32) NOT NULL CHECK (unit IN ('kg', 'ons', 'gram', 'liter', 'ml', 'pcs', 'bungkus', 'botol', 'sachet')),
+        buy_price NUMERIC(12, 2) NOT NULL DEFAULT 0,
+        minimum NUMERIC(12, 3) NOT NULL DEFAULT 0,
+        updated_at VARCHAR(64) NOT NULL DEFAULT 'Baru saja',
+        PRIMARY KEY (store_code, id),
+        CONSTRAINT fk_stock_items_store FOREIGN KEY (store_code) REFERENCES app_stores(code) ON DELETE CASCADE
+      );
+
+      CREATE TABLE IF NOT EXISTS recipes (
+        id VARCHAR(64) NOT NULL,
+        store_code VARCHAR(32) NOT NULL,
+        name VARCHAR(255) NOT NULL,
+        category VARCHAR(64) NOT NULL,
+        PRIMARY KEY (store_code, id),
+        CONSTRAINT fk_recipes_store FOREIGN KEY (store_code) REFERENCES app_stores(code) ON DELETE CASCADE
+      );
+
+      CREATE TABLE IF NOT EXISTS recipe_ingredients (
+        recipe_id VARCHAR(64) NOT NULL,
+        store_code VARCHAR(32) NOT NULL,
+        stock_id VARCHAR(64) NOT NULL,
+        quantity NUMERIC(12, 3) NOT NULL DEFAULT 0,
+        unit VARCHAR(32) NOT NULL CHECK (unit IN ('kg', 'ons', 'gram', 'liter', 'ml', 'pcs', 'bungkus', 'botol', 'sachet')),
+        PRIMARY KEY (store_code, recipe_id, stock_id),
+        CONSTRAINT fk_recipe_ingredients_recipe FOREIGN KEY (store_code, recipe_id) REFERENCES recipes(store_code, id) ON DELETE CASCADE,
+        CONSTRAINT fk_recipe_ingredients_stock FOREIGN KEY (store_code, stock_id) REFERENCES stock_items(store_code, id) ON DELETE CASCADE
+      );
+
+      CREATE TABLE IF NOT EXISTS menu_items (
+        id VARCHAR(64) NOT NULL,
+        store_code VARCHAR(32) NOT NULL,
+        name VARCHAR(255) NOT NULL,
+        price NUMERIC(12, 2) NOT NULL DEFAULT 0,
+        recipe_id VARCHAR(64),
+        recipe_portions NUMERIC(12, 3) DEFAULT 1,
+        PRIMARY KEY (store_code, id),
+        CONSTRAINT fk_menu_items_store FOREIGN KEY (store_code) REFERENCES app_stores(code) ON DELETE CASCADE
+      );
+
+      CREATE TABLE IF NOT EXISTS menu_ingredients (
+        menu_id VARCHAR(64) NOT NULL,
+        store_code VARCHAR(32) NOT NULL,
+        stock_id VARCHAR(64) NOT NULL,
+        quantity NUMERIC(12, 3) NOT NULL DEFAULT 0,
+        unit VARCHAR(32) NOT NULL CHECK (unit IN ('kg', 'ons', 'gram', 'liter', 'ml', 'pcs', 'bungkus', 'botol', 'sachet')),
+        PRIMARY KEY (store_code, menu_id, stock_id),
+        CONSTRAINT fk_menu_ingredients_menu FOREIGN KEY (store_code, menu_id) REFERENCES menu_items(store_code, id) ON DELETE CASCADE,
+        CONSTRAINT fk_menu_ingredients_stock FOREIGN KEY (store_code, stock_id) REFERENCES stock_items(store_code, id) ON DELETE CASCADE
+      );
+
+      CREATE TABLE IF NOT EXISTS transactions (
+        id VARCHAR(64) NOT NULL,
+        store_code VARCHAR(32) NOT NULL,
+        date VARCHAR(32) NOT NULL,
+        type VARCHAR(32) NOT NULL CHECK (type IN ('income', 'expense')),
+        title VARCHAR(255) NOT NULL,
+        amount NUMERIC(12, 2) NOT NULL DEFAULT 0,
+        method VARCHAR(64) NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        PRIMARY KEY (store_code, id),
+        CONSTRAINT fk_transactions_store FOREIGN KEY (store_code) REFERENCES app_stores(code) ON DELETE CASCADE
+      );
+    `);
+    tablesEnsured = true;
+  } catch (error) {
+    console.error("ensureTables error:", error);
+    throw error;
+  } finally {
+    if (client) client.release();
   }
-  return tablesReadyPromise;
 }
 
-function requireDatabase(_request: express.Request, response: express.Response, next: express.NextFunction) {
-  if (!pool) { response.status(503).json({ message: "Database belum dikonfigurasi." }); return; }
-  next();
-}
+const requireDatabase = async (req: Request, res: Response, next: NextFunction) => {
+  if (!pool) {
+    res.status(500).json({ message: "DATABASE_URL belum dikonfigurasi di Netlify." });
+    return;
+  }
+  try {
+    await ensureTables();
+    next();
+  } catch (err) {
+    console.error("Database connection failed:", err);
+    res.status(500).json({
+      message: "Gagal terhubung ke database Neon.",
+      detail: err instanceof Error ? err.message : String(err),
+    });
+  }
+};
 
-function normalizedState(input: unknown): State | null {
+const validCode = (code: string): boolean => {
+  const clean = String(code || "").trim().toUpperCase();
+  return /^[A-Z0-9]{6,12}$/.test(clean);
+};
+
+function normalizedState(input: any): any | null {
   if (!input || typeof input !== "object") return null;
-  const state = input as Partial<State>;
-  if (!Array.isArray(state.stocks) || !Array.isArray(state.recipes) || !Array.isArray(state.products) || !Array.isArray(state.transactions)) return null;
-  return { ...state, demoData: Boolean(state.demoData) } as State;
+  const state = input.state && typeof input.state === "object" ? input.state : input;
+
+  if (
+    !Array.isArray(state.stocks) ||
+    !Array.isArray(state.recipes) ||
+    !Array.isArray(state.products) ||
+    !Array.isArray(state.transactions)
+  ) {
+    return null;
+  }
+
+  return {
+    stocks: state.stocks,
+    recipes: state.recipes,
+    products: state.products,
+    transactions: state.transactions,
+    demoData: Boolean(state.demoData),
+  };
 }
 
-async function writeState(client: PoolClient, code: string, state: State) {
-  await client.query(`INSERT INTO app_stores (access_code, demo_data) VALUES ($1, $2)
-    ON CONFLICT (access_code) DO UPDATE SET demo_data = EXCLUDED.demo_data, updated_at = NOW()`, [code, state.demoData]);
+async function readState(pgPool: Pool, code: string) {
+  const storeRes = await pgPool.query("SELECT updated_at FROM app_stores WHERE code = $1", [code]);
+  if (storeRes.rows.length === 0) return null;
 
-  for (const table of ["financial_transactions", "menu_ingredients", "recipe_ingredients", "menu_items", "recipes", "stock_items"]) {
-    await client.query(`DELETE FROM ${table} WHERE store_code = $1`, [code]);
-  }
+  const stocksRes = await pgPool.query(
+    "SELECT id, name, quantity::float, unit, buy_price::float as \"buyPrice\", minimum::float, updated_at as \"updatedAt\" FROM stock_items WHERE store_code = $1",
+    [code]
+  );
+  const recipesRes = await pgPool.query(
+    "SELECT id, name, category FROM recipes WHERE store_code = $1",
+    [code]
+  );
+  const recipeIngRes = await pgPool.query(
+    "SELECT recipe_id, stock_id as \"stockId\", quantity::float, unit FROM recipe_ingredients WHERE store_code = $1",
+    [code]
+  );
+  const productsRes = await pgPool.query(
+    "SELECT id, name, price::float, recipe_id as \"recipeId\", recipe_portions::float as \"recipePortions\" FROM menu_items WHERE store_code = $1",
+    [code]
+  );
+  const menuIngRes = await pgPool.query(
+    "SELECT menu_id, stock_id as \"stockId\", quantity::float, unit FROM menu_ingredients WHERE store_code = $1",
+    [code]
+  );
+  const txRes = await pgPool.query(
+    "SELECT id, date, type, title, amount::float, method FROM transactions WHERE store_code = $1 ORDER BY created_at DESC",
+    [code]
+  );
 
-  const validStockIds = new Set<string>();
-  for (const stock of state.stocks) {
-    validStockIds.add(stock.id);
-    await client.query(`INSERT INTO stock_items (store_code, id, name, quantity, unit, buy_price, minimum_quantity, updated_label)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`, [code, stock.id, stock.name, Math.max(0, asNumber(stock.quantity)), stock.unit, Math.max(0, asNumber(stock.buyPrice)), Math.max(0, asNumber(stock.minimum)), stock.updatedAt || "Baru saja"]);
-  }
+  const recipes = recipesRes.rows.map((r) => ({
+    ...r,
+    ingredients: recipeIngRes.rows
+      .filter((ing) => ing.recipe_id === r.id)
+      .map(({ recipe_id, ...rest }) => rest),
+  }));
 
-  const validRecipeIds = new Set<string>();
-  for (const recipe of state.recipes) {
-    validRecipeIds.add(recipe.id);
-    await client.query("INSERT INTO recipes (store_code, id, name, category) VALUES ($1, $2, $3, $4)", [code, recipe.id, recipe.name, recipe.category]);
-  }
+  const products = productsRes.rows.map((p) => ({
+    ...p,
+    ingredients: menuIngRes.rows
+      .filter((ing) => ing.menu_id === p.id)
+      .map(({ menu_id, ...rest }) => rest),
+  }));
 
-  for (const recipe of state.recipes) {
-    const seenStocks = new Set<string>();
-    for (const ingredient of recipe.ingredients) {
-      if (!validStockIds.has(ingredient.stockId) || seenStocks.has(ingredient.stockId)) continue;
-      seenStocks.add(ingredient.stockId);
-      await client.query(`INSERT INTO recipe_ingredients (store_code, recipe_id, stock_id, quantity, unit) VALUES ($1, $2, $3, $4, $5)`,
-        [code, recipe.id, ingredient.stockId, Math.max(0, asNumber(ingredient.quantity)), ingredient.unit || "gram"]);
-    }
-  }
-
-  for (const product of state.products) {
-    const recipeId = product.recipeId && validRecipeIds.has(product.recipeId) ? product.recipeId : null;
-    await client.query(`INSERT INTO menu_items (store_code, id, name, price, image_url, recipe_id, recipe_portions) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-      [code, product.id, product.name, Math.max(0, asNumber(product.price)), product.imageUrl || null, recipeId, product.recipePortions || null]);
-  }
-
-  for (const product of state.products) {
-    const seenStocks = new Set<string>();
-    for (const ingredient of product.ingredients) {
-      if (!validStockIds.has(ingredient.stockId) || seenStocks.has(ingredient.stockId)) continue;
-      seenStocks.add(ingredient.stockId);
-      await client.query(`INSERT INTO menu_ingredients (store_code, menu_id, stock_id, quantity, unit) VALUES ($1, $2, $3, $4, $5)`,
-        [code, product.id, ingredient.stockId, Math.max(0, asNumber(ingredient.quantity)), ingredient.unit || "gram"]);
-    }
-  }
-
-  for (const transaction of state.transactions) {
-    await client.query(`INSERT INTO financial_transactions (store_code, id, transaction_date, type, title, amount, method) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-      [code, transaction.id, transaction.date, transaction.type, transaction.title, Math.max(0, asNumber(transaction.amount)), transaction.method]);
-  }
+  return {
+    state: {
+      stocks: stocksRes.rows,
+      recipes,
+      products,
+      transactions: txRes.rows,
+      demoData: false,
+    },
+    updatedAt: storeRes.rows[0].updated_at.toISOString(),
+  };
 }
 
-async function saveState(code: string, state: State) {
-  const client = await pool!.connect();
+async function saveState(code: string, state: any) {
+  if (!pool) throw new Error("Pool database tidak tersedia.");
+  const client = await pool.connect();
   try {
     await client.query("BEGIN");
-    await writeState(client, code, state);
+
+    await client.query(
+      "INSERT INTO app_stores (code, updated_at) VALUES ($1, NOW()) ON CONFLICT (code) DO UPDATE SET updated_at = NOW()",
+      [code]
+    );
+
+    await client.query("DELETE FROM stock_items WHERE store_code = $1", [code]);
+    for (const s of state.stocks) {
+      await client.query(
+        "INSERT INTO stock_items (id, store_code, name, quantity, unit, buy_price, minimum, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+        [s.id, code, s.name, s.quantity, s.unit, s.buyPrice || 0, s.minimum || 0, s.updatedAt || "Baru saja"]
+      );
+    }
+
+    await client.query("DELETE FROM recipes WHERE store_code = $1", [code]);
+    for (const r of state.recipes) {
+      await client.query(
+        "INSERT INTO recipes (id, store_code, name, category) VALUES ($1, $2, $3, $4)",
+        [r.id, code, r.name, r.category]
+      );
+      if (Array.isArray(r.ingredients)) {
+        for (const ing of r.ingredients) {
+          await client.query(
+            "INSERT INTO recipe_ingredients (recipe_id, store_code, stock_id, quantity, unit) VALUES ($1, $2, $3, $4, $5)",
+            [r.id, code, ing.stockId, ing.quantity, ing.unit]
+          );
+        }
+      }
+    }
+
+    await client.query("DELETE FROM menu_items WHERE store_code = $1", [code]);
+    for (const p of state.products) {
+      await client.query(
+        "INSERT INTO menu_items (id, store_code, name, price, recipe_id, recipe_portions) VALUES ($1, $2, $3, $4, $5, $6)",
+        [p.id, code, p.name, p.price, p.recipeId || null, p.recipePortions || 1]
+      );
+      if (Array.isArray(p.ingredients)) {
+        for (const ing of p.ingredients) {
+          await client.query(
+            "INSERT INTO menu_ingredients (menu_id, store_code, stock_id, quantity, unit) VALUES ($1, $2, $3, $4, $5)",
+            [p.id, code, ing.stockId, ing.quantity, ing.unit]
+          );
+        }
+      }
+    }
+
+    await client.query("DELETE FROM transactions WHERE store_code = $1", [code]);
+    for (const t of state.transactions) {
+      await client.query(
+        "INSERT INTO transactions (id, store_code, date, type, title, amount, method) VALUES ($1, $2, $3, $4, $5, $6, $7)",
+        [t.id, code, t.date, t.type, t.title, t.amount, t.method]
+      );
+    }
+
     await client.query("COMMIT");
-  } catch (error) {
+  } catch (err) {
     await client.query("ROLLBACK");
-    console.error("Database saveState error:", error);
-    throw error;
+    throw err;
   } finally {
     client.release();
   }
 }
 
-async function readState(client: Pool | PoolClient, code: string) {
-  const store = await client.query("SELECT demo_data, updated_at FROM app_stores WHERE access_code = $1", [code]);
-  if (!store.rowCount) return null;
-  const [stocks, recipes, recipeIngredients, products, menuIngredients, transactions] = await Promise.all([
-    client.query("SELECT * FROM stock_items WHERE store_code = $1 ORDER BY name", [code]),
-    client.query("SELECT * FROM recipes WHERE store_code = $1 ORDER BY name", [code]),
-    client.query("SELECT * FROM recipe_ingredients WHERE store_code = $1", [code]),
-    client.query("SELECT * FROM menu_items WHERE store_code = $1 ORDER BY name", [code]),
-    client.query("SELECT * FROM menu_ingredients WHERE store_code = $1", [code]),
-    client.query("SELECT * FROM financial_transactions WHERE store_code = $1 ORDER BY transaction_date DESC, id DESC", [code]),
-  ]);
-  const groupIngredients = (rows: Array<Record<string, unknown>>, parent: string) => {
-    const grouped = new Map<string, Ingredient[]>();
-    for (const row of rows) {
-      const values = grouped.get(String(row[parent])) || [];
-      values.push({ stockId: String(row.stock_id), quantity: asNumber(row.quantity), unit: row.unit as Ingredient["unit"] });
-      grouped.set(String(row[parent]), values);
-    }
-    return grouped;
-  };
-  const recipeParts = groupIngredients(recipeIngredients.rows, "recipe_id");
-  const menuParts = groupIngredients(menuIngredients.rows, "menu_id");
-  return {
-    state: {
-      stocks: stocks.rows.map((stock) => ({ id: stock.id, name: stock.name, quantity: asNumber(stock.quantity), unit: stock.unit, buyPrice: asNumber(stock.buy_price), minimum: asNumber(stock.minimum_quantity), updatedAt: stock.updated_label })),
-      recipes: recipes.rows.map((recipe) => ({ id: recipe.id, name: recipe.name, category: recipe.category, ingredients: recipeParts.get(recipe.id) || [] })),
-      products: products.rows.map((product) => ({ id: product.id, name: product.name, price: asNumber(product.price), imageUrl: product.image_url || undefined, recipeId: product.recipe_id || undefined, recipePortions: product.recipe_portions ? asNumber(product.recipe_portions) : undefined, ingredients: menuParts.get(product.id) || [] })),
-      transactions: transactions.rows.map((transaction) => ({ id: transaction.id, date: new Date(transaction.transaction_date).toISOString().slice(0, 10), type: transaction.type, title: transaction.title, amount: asNumber(transaction.amount), method: transaction.method })),
-      demoData: store.rows[0].demo_data,
-    } satisfies State,
-    updatedAt: store.rows[0].updated_at,
-  };
-}
-
-async function migrateLegacyState(code: string) {
-  const existing = await pool!.query("SELECT to_regclass('public.app_states') AS legacy_table");
-  if (!existing.rows[0].legacy_table) return false;
-  const legacy = await pool!.query("SELECT state FROM app_states WHERE access_code = $1", [code]);
-  const state = legacy.rowCount ? normalizedState(legacy.rows[0].state) : null;
-  if (!state) return false;
-  await saveState(code, state);
-  return true;
-}
-
 const apiRouter = express.Router();
 
-apiRouter.get("/health", (_request, response) => {
-  response.json({ database: Boolean(pool) });
-});
+apiRouter.get("/state/:code", requireDatabase, async (req: Request, res: Response) => {
+  const code = String(req.params.code || "").trim().toUpperCase();
+  if (!validCode(code)) {
+    res.status(400).json({ message: "Kode akses tidak valid." });
+    return;
+  }
 
-apiRouter.get("/state/:code", requireDatabase, async (request, response) => {
-  const code = String(request.params.code).toUpperCase();
-  if (!validCode(code)) { response.status(400).json({ message: "Kode akses tidak valid." }); return; }
   try {
-    let result = await readState(pool!, code);
-    if (!result && await migrateLegacyState(code)) result = await readState(pool!, code);
-    if (!result) { response.status(404).json({ message: "Data belum dibuat." }); return; }
-    response.json(result);
+    const data = await readState(pool!, code);
+    if (!data) {
+      res.status(404).json({ message: "Data belum dibuat." });
+      return;
+    }
+    res.json(data);
   } catch (error) {
-    console.error("Read state error:", error);
-    response.status(500).json({ message: "Gagal membaca data." });
+    console.error("GET state error:", error);
+    res.status(500).json({
+      message: "Gagal membaca data dari server.",
+      detail: error instanceof Error ? error.message : String(error),
+    });
   }
 });
 
-apiRouter.put("/state/:code", requireDatabase, async (request, response) => {
-  const code = String(request.params.code).toUpperCase();
-  const state = normalizedState(request.body?.state);
-  if (!validCode(code) || !state) { response.status(400).json({ message: "Data atau kode akses tidak valid." }); return; }
+apiRouter.put("/state/:code", requireDatabase, async (req: Request, res: Response) => {
+  const code = String(req.params.code || "").trim().toUpperCase();
+
+  if (!validCode(code)) {
+    res.status(400).json({ message: "Kode akses harus 6-12 karakter alfanumerik." });
+    return;
+  }
+
+  const state = normalizedState(req.body);
+  if (!state) {
+    res.status(400).json({ message: "Format data JSON state tidak lengkap (butuh array stocks, recipes, products, transactions)." });
+    return;
+  }
+
   try {
     await saveState(code, state);
     const saved = await readState(pool!, code);
-    response.json({ updatedAt: saved!.updatedAt });
+    res.json({ updatedAt: saved?.updatedAt || new Date().toISOString() });
   } catch (error) {
     console.error("PUT state error:", error);
-    response.status(400).json({ message: error instanceof Error ? error.message : "Data tidak bisa disimpan. Cek isi stok atau resep." });
+    res.status(400).json({
+      message: error instanceof Error ? error.message : "Gagal menyimpan data ke database.",
+    });
   }
 });
 
-apiRouter.post("/state/:code/checkout", requireDatabase, async (request, response) => {
-  const code = String(request.params.code).toUpperCase();
-  const items = request.body?.items as Array<{ productId: string; quantity: number }>;
-  const method = String(request.body?.method || "Tunai");
-  if (!validCode(code) || !Array.isArray(items) || !items.length) { response.status(400).json({ message: "Data kasir tidak valid." }); return; }
-  const client = await pool!.connect();
-  try {
-    await client.query("BEGIN");
-    const selected = new Map(items.map((item) => [String(item.productId), asNumber(item.quantity)]));
-    if ([...selected.values()].some((quantity) => !Number.isFinite(quantity) || quantity <= 0)) throw new Error("Jumlah menu tidak valid");
-    const menuRows = await client.query(`SELECT menu.id, menu.name, menu.price, ingredient.stock_id, ingredient.quantity, ingredient.unit
-      FROM menu_items menu LEFT JOIN menu_ingredients ingredient ON ingredient.store_code = menu.store_code AND ingredient.menu_id = menu.id
-      WHERE menu.store_code = $1 AND menu.id = ANY($2::text[])`, [code, [...selected.keys()]]);
-    const names = new Map<string, string>(); const prices = new Map<string, number>(); const required = new Map<string, number>(); const menusWithIngredients = new Set<string>();
-    for (const row of menuRows.rows) {
-      const count = selected.get(row.id)!; names.set(row.id, row.name); prices.set(row.id, asNumber(row.price));
-      if (row.stock_id) {
-        menusWithIngredients.add(row.id);
-        required.set(row.stock_id, (required.get(row.stock_id) || 0) + ingredientBaseUnit(asNumber(row.quantity), row.unit) * count);
-      }
-    }
-    if (names.size !== selected.size) throw new Error("Menu tidak ditemukan");
-    if (menusWithIngredients.size !== selected.size) throw new Error("Menu belum punya bahan");
-    const stockIds = [...required.keys()];
-    const stockRows = stockIds.length ? await client.query(`SELECT id, quantity, unit FROM stock_items WHERE store_code = $1 AND id = ANY($2::text[]) FOR UPDATE`, [code, stockIds]) : { rows: [] as Array<{ id: string; quantity: string; unit: string }> };
-    for (const stockId of stockIds) {
-      const stock = stockRows.rows.find((row) => row.id === stockId);
-      if (!stock || stockBaseUnit(asNumber(stock.quantity), stock.unit) < required.get(stockId)!) throw new Error("Stok bahan kurang");
-    }
-    for (const stockId of stockIds) {
-      const stock = stockRows.rows.find((row) => row.id === stockId)!;
-      const remaining = stockBaseUnit(asNumber(stock.quantity), stock.unit) - required.get(stockId)!;
-      await client.query(`UPDATE stock_items SET quantity = $3, updated_label = 'Baru saja' WHERE store_code = $1 AND id = $2`, [code, stockId, remaining / unitFactor(stock.unit)]);
-    }
-    const amount = items.reduce((total, item) => total + (prices.get(String(item.productId)) || 0) * asNumber(item.quantity), 0);
-    const title = items.map((item) => `${names.get(String(item.productId))} x${item.quantity}`).join(", ");
-    const sale = { id: randomUUID(), date: new Date().toISOString().slice(0, 10), type: "income" as const, title, amount, method };
-    await client.query(`INSERT INTO financial_transactions (store_code, id, transaction_date, type, title, amount, method) VALUES ($1, $2, $3, $4, $5, $6, $7)`, [code, sale.id, sale.date, sale.type, sale.title, sale.amount, sale.method]);
-    await client.query("UPDATE app_stores SET updated_at = NOW() WHERE access_code = $1", [code]);
-    await client.query("COMMIT");
-    const state = await readState(pool!, code);
-    response.json({ ...state, sale });
-  } catch (error) {
-    await client.query("ROLLBACK");
-    response.status(400).json({ message: error instanceof Error ? error.message : "Checkout gagal." });
-  } finally { client.release(); }
-});
-
-// Pasang router pada semua path yang mungkin dipanggil (Vite dev proxy, standalone, dan Netlify Functions)
 app.use("/api", apiRouter);
-app.use("/.netlify/functions/api", apiRouter);
-app.use("/", apiRouter);
