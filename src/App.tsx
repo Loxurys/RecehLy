@@ -466,9 +466,13 @@ function App() {
     <div className="min-h-screen bg-[#f8f7f2] text-ink flex flex-col">
       <aside className="no-print fixed inset-y-0 left-0 z-30 hidden w-64 flex-col border-r border-line bg-white lg:flex">
         <div className="flex items-center gap-3 px-6 py-6 border-b border-line/60">
-          <div className="grid h-10 w-10 place-items-center rounded-xl overflow-hidden bg-moss text-white shadow-xs">
+          <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl overflow-hidden bg-moss text-white shadow-xs">
             {APP_CONFIG.logo ? (
-              <img src={APP_CONFIG.logo} alt={APP_CONFIG.name} className="h-full w-full object-cover" />
+              <img
+                src={APP_CONFIG.logo}
+                alt={APP_CONFIG.name}
+                className="h-full w-full max-h-10 max-w-10 object-contain p-1"
+              />
             ) : (
               <ShoppingBasket size={21} />
             )}
