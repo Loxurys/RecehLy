@@ -48,13 +48,15 @@ export async function saveRemoteState(
   const code = normalizeAccessCode(accessCode);
   if (!code) throw new Error("Kode akses tidak valid.");
 
-  // Memastikan payload membawa 4 array utama agar lolos normalizedState() di backend Express
+  // Membungkus payload di dalam objek 'state' agar lolos validasi normalizedState() di backend Express
   const payload = {
-    stocks: state.stocks || [],
-    recipes: state.recipes || [],
-    products: state.products || [],
-    transactions: state.transactions || [],
-    demoData: Boolean(state.demoData),
+    state: {
+      stocks: state.stocks || [],
+      recipes: state.recipes || [],
+      products: state.products || [],
+      transactions: state.transactions || [],
+      demoData: Boolean(state.demoData),
+    },
   };
 
   const response = await fetch(`/api/state/${code}`, {

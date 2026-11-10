@@ -60,7 +60,6 @@ export interface Transaction {
   category?: string;
 }
 
-// 1. Pilihan Satuan Baku
 export const selectableUnits = (stock?: Stock): IngredientUnit[] => {
   if (!stock) return ["gram", "kg", "ons", "ml", "liter", "pcs", "bungkus", "botol", "sachet"];
   const u = stock.unit;
@@ -75,13 +74,10 @@ export const usedStockUnits = (ingredient: Ingredient, stock?: Stock): number =>
   const ingUnit = ingredient.unit;
   const stockUnit = stock?.unit || ingUnit;
 
-  // Konversi ke basis gram / ml
   const baseQty = grams(ingQty, ingUnit);
-  // Kembalikan ke satuan stok
   return fromBaseUnits(baseQty, stockUnit);
 };
 
-// 2. Formatting & Konversi Unit
 export function rupiah(value: number): string {
   return "Rp " + Math.round(value || 0).toLocaleString("id-ID");
 }
@@ -108,18 +104,27 @@ export function grams(target: number | Stock, unit?: IngredientUnit): number {
 
 export function fromBaseUnits(quantity: number, targetUnit: IngredientUnit): number {
   const q = Number(quantity) || 0;
+  let result = q;
+
   switch (targetUnit) {
     case "kg":
-      return q / 1000;
+      result = q / 1000;
+      break;
     case "ons":
-      return q / 100;
+      result = q / 100;
+      break;
     case "liter":
-      return q / 1000;
+      result = q / 1000;
+      break;
     case "ml":
     case "gram":
     default:
-      return q;
+      result = q;
+      break;
   }
+
+  // Pembulatan presisi 3 angka di belakang koma (mencegah desimal panjang 4.9988)
+  return Math.round(result * 1000) / 1000;
 }
 
 export function recipeUnit(ingredient: Ingredient, stock?: Stock): string {
@@ -127,7 +132,6 @@ export function recipeUnit(ingredient: Ingredient, stock?: Stock): string {
   return ingredient.unit || stock?.unit || "";
 }
 
-// 3. Kalkulasi HPP Menu
 export function calculateProductHpp(
   ingredientsOrProduct: Ingredient[] | Product,
   stocks: Stock[]
@@ -150,7 +154,6 @@ export function calculateProductHpp(
   }, 0);
 }
 
-// 4. Manajemen Gambar QRIS LocalStorage
 const QRIS_STORAGE_KEY = "recehly_qris_image";
 
 export function loadQrisImage(): string {
@@ -173,7 +176,6 @@ export function saveQrisImage(dataUrl: string): void {
   }
 }
 
-// 5. Data Default / Initial State
 export const initialStock: Stock[] = [
   { id: "s1", name: "Daging Sapi", quantity: 5, unit: "kg", buyPrice: 120000, minimum: 2, updatedAt: "Hari ini" },
   { id: "s2", name: "Tepung Tapioka", quantity: 10, unit: "kg", buyPrice: 12000, minimum: 3, updatedAt: "Hari ini" },

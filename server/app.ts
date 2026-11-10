@@ -126,7 +126,7 @@ const requireDatabase = async (req: Request, res: Response, next: NextFunction) 
   }
 };
 
-const validCode = (code: string): boolean => /^[A-Z0-9]{6,12}$/.test(code);
+const validCode = (code: string): boolean => /^[A-Z0-9]{6,12}\$/.test(code);
 
 function normalizedState(input: any): any | null {
   if (!input || typeof input !== "object") return null;
@@ -151,31 +151,31 @@ function normalizedState(input: any): any | null {
 }
 
 async function readState(pgPool: Pool, code: string) {
-  const storeRes = await pgPool.query("SELECT updated_at FROM app_stores WHERE code = $1", [code]);
+  const storeRes = await pgPool.query("SELECT updated_at FROM app_stores WHERE code = \$1", [code]);
   if (storeRes.rows.length === 0) return null;
 
   const stocksRes = await pgPool.query(
-    "SELECT id, name, quantity::float, unit, buy_price::float as \"buyPrice\", minimum::float, updated_at as \"updatedAt\" FROM stock_items WHERE store_code = $1",
+    "SELECT id, name, quantity::float, unit, buy_price::float as \"buyPrice\", minimum::float, updated_at as \"updatedAt\" FROM stock_items WHERE store_code = \$1",
     [code]
   );
   const recipesRes = await pgPool.query(
-    "SELECT id, name, category FROM recipes WHERE store_code = $1",
+    "SELECT id, name, category FROM recipes WHERE store_code = \$1",
     [code]
   );
   const recipeIngRes = await pgPool.query(
-    "SELECT recipe_id, stock_id as \"stockId\", quantity::float, unit FROM recipe_ingredients WHERE store_code = $1",
+    "SELECT recipe_id, stock_id as \"stockId\", quantity::float, unit FROM recipe_ingredients WHERE store_code = \$1",
     [code]
   );
   const productsRes = await pgPool.query(
-    "SELECT id, name, price::float, recipe_id as \"recipeId\", recipe_portions::float as \"recipePortions\" FROM menu_items WHERE store_code = $1",
+    "SELECT id, name, price::float, recipe_id as \"recipeId\", recipe_portions::float as \"recipePortions\" FROM menu_items WHERE store_code = \$1",
     [code]
   );
   const menuIngRes = await pgPool.query(
-    "SELECT menu_id, stock_id as \"stockId\", quantity::float, unit FROM menu_ingredients WHERE store_code = $1",
+    "SELECT menu_id, stock_id as \"stockId\", quantity::float, unit FROM menu_ingredients WHERE store_code = \$1",
     [code]
   );
   const txRes = await pgPool.query(
-    "SELECT id, date, type, title, amount::float, method FROM transactions WHERE store_code = $1 ORDER BY created_at DESC",
+    "SELECT id, date, type, title, amount::float, method FROM transactions WHERE store_code = \$1 ORDER BY created_at DESC",
     [code]
   );
 
@@ -212,54 +212,54 @@ async function saveState(code: string, state: any) {
     await client.query("BEGIN");
 
     await client.query(
-      "INSERT INTO app_stores (code, updated_at) VALUES ($1, NOW()) ON CONFLICT (code) DO UPDATE SET updated_at = NOW()",
+      "INSERT INTO app_stores (code, updated_at) VALUES (\$1, NOW()) ON CONFLICT (code) DO UPDATE SET updated_at = NOW()",
       [code]
     );
 
-    await client.query("DELETE FROM stock_items WHERE store_code = $1", [code]);
+    await client.query("DELETE FROM stock_items WHERE store_code = \$1", [code]);
     for (const s of state.stocks) {
       await client.query(
-        "INSERT INTO stock_items (id, store_code, name, quantity, unit, buy_price, minimum, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+        "INSERT INTO stock_items (id, store_code, name, quantity, unit, buy_price, minimum, updated_at) VALUES (\$1, \$2, \$3, \$4, \$5, \$6, \$7, \$8)",
         [s.id, code, s.name, s.quantity, s.unit, s.buyPrice || 0, s.minimum || 0, s.updatedAt || "Baru saja"]
       );
     }
 
-    await client.query("DELETE FROM recipes WHERE store_code = $1", [code]);
+    await client.query("DELETE FROM recipes WHERE store_code = \$1", [code]);
     for (const r of state.recipes) {
       await client.query(
-        "INSERT INTO recipes (id, store_code, name, category) VALUES ($1, $2, $3, $4)",
+        "INSERT INTO recipes (id, store_code, name, category) VALUES (\$1, \$2, \$3, \$4)",
         [r.id, code, r.name, r.category]
       );
       if (Array.isArray(r.ingredients)) {
         for (const ing of r.ingredients) {
           await client.query(
-            "INSERT INTO recipe_ingredients (recipe_id, store_code, stock_id, quantity, unit) VALUES ($1, $2, $3, $4, $5)",
+            "INSERT INTO recipe_ingredients (recipe_id, store_code, stock_id, quantity, unit) VALUES (\$1, \$2, \$3, \$4, \$5)",
             [r.id, code, ing.stockId, ing.quantity, ing.unit]
           );
         }
       }
     }
 
-    await client.query("DELETE FROM menu_items WHERE store_code = $1", [code]);
+    await client.query("DELETE FROM menu_items WHERE store_code = \$1", [code]);
     for (const p of state.products) {
       await client.query(
-        "INSERT INTO menu_items (id, store_code, name, price, recipe_id, recipe_portions) VALUES ($1, $2, $3, $4, $5, $6)",
+        "INSERT INTO menu_items (id, store_code, name, price, recipe_id, recipe_portions) VALUES (\$1, \$2, \$3, \$4, \$5, \$6)",
         [p.id, code, p.name, p.price, p.recipeId || null, p.recipePortions || 1]
       );
       if (Array.isArray(p.ingredients)) {
         for (const ing of p.ingredients) {
           await client.query(
-            "INSERT INTO menu_ingredients (menu_id, store_code, stock_id, quantity, unit) VALUES ($1, $2, $3, $4, $5)",
+            "INSERT INTO menu_ingredients (menu_id, store_code, stock_id, quantity, unit) VALUES (\$1, \$2, \$3, \$4, \$5)",
             [p.id, code, ing.stockId, ing.quantity, ing.unit]
           );
         }
       }
     }
 
-    await client.query("DELETE FROM transactions WHERE store_code = $1", [code]);
+    await client.query("DELETE FROM transactions WHERE store_code = \$1", [code]);
     for (const t of state.transactions) {
       await client.query(
-        "INSERT INTO transactions (id, store_code, date, type, title, amount, method) VALUES ($1, $2, $3, $4, $5, $6, $7)",
+        "INSERT INTO transactions (id, store_code, date, type, title, amount, method) VALUES (\$1, \$2, \$3, \$4, \$5, \$6, \$7)",
         [t.id, code, t.date, t.type, t.title, t.amount, t.method]
       );
     }
