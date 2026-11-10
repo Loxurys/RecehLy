@@ -1,62 +1,90 @@
-import type { Product, Recipe, Stock, Transaction } from "./app-data";
-
-export type AppState = {
-  stocks: Stock[];
-  products: Product[];
-  recipes: Recipe[];
-  transactions: Transaction[];
+export interface AppState {
+  stocks: any[];
+  products: any[];
+  recipes: any[];
+  transactions: any[];
   demoData: boolean;
-};
-
-type RemoteState = { state: AppState; updatedAt: string };
-
-const endpoint = (code: string) => `/api/state/${encodeURIComponent(code)}`;
-
-async function readError(response: Response) {
-  const body = (await response.json().catch(() => null)) as {
-    message?: string;
-  } | null;
-  return body?.message || "Koneksi ke penyimpanan online gagal.";
 }
 
-export async function getRemoteState(code: string): Promise<RemoteState | null> {
-  const response = await fetch(endpoint(code));
-  if (response.status === 404) return null;
-  if (!response.ok) throw new Error(await readError(response));
-  return response.json() as Promise<RemoteState>;
+export function normalizeAccessCode(code: string): string {
+  return code.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
 }
 
-export async function saveRemoteState(code: string, state: AppState) {
-  const response = await fetch(endpoint(code), {
+// 1. GET State dari Database Online (Neon.tech)
+export async function getRemoteState(
+  accessCode: string
+): Promise<{ state: AppState; updatedAt: string } | null> {
+  const code = normalizeAccessCode(accessCode);
+  if (!code) return null;
+
+  const response = await fetch(`/api/state/${code}`);
+
+  if (response.status === 404) {
+    return null; // Data toko belum dibuat di DB
+  }
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.message || "Gagal mengambil data dari database online.");
+  }
+
+  return response.json();
+}
+
+// 2. PUT State ke Database Online (Save State)
+export async function saveRemoteState(
+  accessCode: string,
+  state: AppState
+): Promise<{ updatedAt: string }> {
+  const code = normalizeAccessCode(accessCode);
+  if (!code) throw new Error("Kode akses tidak valid.");
+
+  // Memastikan payload membawa 4 array utama agar lolos normalizedState() di backend Express
+  const payload = {
+    stocks: state.stocks || [],
+    recipes: state.recipes || [],
+    products: state.products || [],
+    transactions: state.transactions || [],
+    demoData: Boolean(state.demoData),
+  };
+
+  const response = await fetch(`/api/state/${code}`, {
     method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ state }),
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
   });
-  if (!response.ok) throw new Error(await readError(response));
-  return response.json() as Promise<{ updatedAt: string }>;
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.message || "Gagal menyimpan data ke database online.");
+  }
+
+  return response.json();
 }
 
+// 3. POST Transaksi Kasir (Checkout Remote)
 export async function checkoutRemote(
-  code: string,
-  items: Array<{ productId: string; quantity: number }>,
-  method: string,
-) {
-  const response = await fetch(`${endpoint(code)}/checkout`, {
+  accessCode: string,
+  items: { productId: string; quantity: number }[],
+  method: string
+): Promise<{ state: AppState; sale: any; updatedAt: string }> {
+  const code = normalizeAccessCode(accessCode);
+  if (!code) throw new Error("Kode akses tidak valid.");
+
+  const response = await fetch(`/api/state/${code}/checkout`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+    },
     body: JSON.stringify({ items, method }),
   });
-  if (!response.ok) throw new Error(await readError(response));
-  return response.json() as Promise<
-    RemoteState & { sale: AppState["transactions"][number] }
-  >;
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.message || "Proses checkout gagal.");
+  }
+
+  return response.json();
 }
-
-export const normalizeAccessCode = (value: string) =>
-  value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 12);
-
-export const makeAccessCode = () =>
-  Array.from(crypto.getRandomValues(new Uint32Array(2)))
-    .map((value) => value.toString(36).toUpperCase())
-    .join("")
-    .slice(0, 8);
