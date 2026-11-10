@@ -1,6 +1,7 @@
-# Masalah dan Solusi
+# RecehLy
 
-MASALAH
+## MASALAH
+
 Di era digital saat ini, sebagian besar UMKM masih mengandalkan pencatatan transaksi dan inventaris secara manual menggunakan buku catatan.
 
 Metode konvensional ini menyimpan risiko besar. Pertama, sering terjadi lost sales atau kehilangan potensi penjualan karena stok barang habis tanpa disadari. Pelaku usaha baru tahu stok kosong saat pelanggan sudah datang untuk membeli.
@@ -9,7 +10,8 @@ Kedua, pengelolaan keuangan menjadi tidak terstruktur. Pemantauan cashflow menja
 
 Ketiga, tingginya risiko human error atau kesalahan hitung, risiko catatan rusak dan hilang, serta boros waktu karena harus melakukan rekapitulasi data keuangan secara manual di akhir bulan.
 
-SOLUSI
+## SOLUSI
+
 RecehLy hadir sebagai solusi terintegrasi untuk memodernisasi manajemen operasional UMKM.
 
 Aplikasi ini mengotomatisasi pencatatan keluar-masuk barang secara real-time, sehingga data inventaris selalu akurat di setiap transaksi.
