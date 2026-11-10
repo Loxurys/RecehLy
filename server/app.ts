@@ -1,7 +1,6 @@
 import express, { Request, Response, NextFunction } from "express";
 import { Pool } from "pg";
 
-
 export const app = express();
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ limit: "10mb", extended: true }));
@@ -11,11 +10,9 @@ const databaseUrl = process.env.DATABASE_URL;
 export const pool = databaseUrl
   ? new Pool({
       connectionString: databaseUrl,
-      ssl: databaseUrl.includes("neon.tech")
-        ? { rejectUnauthorized: false }
-        : false,
+      ssl: { rejectUnauthorized: false },
       max: 1,
-      idleTimeoutMillis: 10000,
+      idleTimeoutMillis: 1000,
       connectionTimeoutMillis: 10000,
     })
   : null;
@@ -24,14 +21,14 @@ let tablesEnsured = false;
 
 export async function ensureTables() {
   if (!pool || tablesEnsured) return;
-  const client = await pool.connect();
+  let client;
   try {
+    client = await pool.connect();
     await client.query(`
       CREATE TABLE IF NOT EXISTS app_stores (
         code VARCHAR(32) PRIMARY KEY,
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       );
-
       CREATE TABLE IF NOT EXISTS stock_items (
         id VARCHAR(64) NOT NULL,
         store_code VARCHAR(32) NOT NULL REFERENCES app_stores(code) ON DELETE CASCADE,
@@ -43,7 +40,6 @@ export async function ensureTables() {
         updated_at VARCHAR(64) NOT NULL DEFAULT 'Baru saja',
         PRIMARY KEY (store_code, id)
       );
-
       CREATE TABLE IF NOT EXISTS recipes (
         id VARCHAR(64) NOT NULL,
         store_code VARCHAR(32) NOT NULL REFERENCES app_stores(code) ON DELETE CASCADE,
@@ -51,7 +47,6 @@ export async function ensureTables() {
         category VARCHAR(64) NOT NULL,
         PRIMARY KEY (store_code, id)
       );
-
       CREATE TABLE IF NOT EXISTS recipe_ingredients (
         recipe_id VARCHAR(64) NOT NULL,
         store_code VARCHAR(32) NOT NULL,
@@ -62,7 +57,6 @@ export async function ensureTables() {
         FOREIGN KEY (store_code, recipe_id) REFERENCES recipes(store_code, id) ON DELETE CASCADE,
         FOREIGN KEY (store_code, stock_id) REFERENCES stock_items(store_code, id) ON DELETE CASCADE
       );
-
       CREATE TABLE IF NOT EXISTS menu_items (
         id VARCHAR(64) NOT NULL,
         store_code VARCHAR(32) NOT NULL REFERENCES app_stores(code) ON DELETE CASCADE,
@@ -72,7 +66,6 @@ export async function ensureTables() {
         recipe_portions NUMERIC(12, 3) DEFAULT 1,
         PRIMARY KEY (store_code, id)
       );
-
       CREATE TABLE IF NOT EXISTS menu_ingredients (
         menu_id VARCHAR(64) NOT NULL,
         store_code VARCHAR(32) NOT NULL,
@@ -83,7 +76,6 @@ export async function ensureTables() {
         FOREIGN KEY (store_code, menu_id) REFERENCES menu_items(store_code, id) ON DELETE CASCADE,
         FOREIGN KEY (store_code, stock_id) REFERENCES stock_items(store_code, id) ON DELETE CASCADE
       );
-
       CREATE TABLE IF NOT EXISTS transactions (
         id VARCHAR(64) NOT NULL,
         store_code VARCHAR(32) NOT NULL REFERENCES app_stores(code) ON DELETE CASCADE,
@@ -101,13 +93,13 @@ export async function ensureTables() {
     console.error("ensureTables query error:", error);
     throw error;
   } finally {
-    client.release();
+    if (client) client.release();
   }
 }
 
 const requireDatabase = async (req: Request, res: Response, next: NextFunction) => {
   if (!pool) {
-    res.status(500).json({ message: "Database belum terkonfigurasi di server." });
+    res.status(500).json({ message: "DATABASE_URL belum dipasang di environment Netlify." });
     return;
   }
   try {
@@ -115,7 +107,10 @@ const requireDatabase = async (req: Request, res: Response, next: NextFunction) 
     next();
   } catch (err) {
     console.error("Database initialization failed:", err);
-    res.status(500).json({ message: "Gagal terhubung ke database server." });
+    res.status(500).json({ 
+      message: "Gagal terhubung ke database Neon.",
+      detail: err instanceof Error ? err.message : String(err)
+    });
   }
 };
 
@@ -123,7 +118,6 @@ const validCode = (code: string): boolean => /^[A-Z0-9]{6,12}$/.test(code);
 
 function normalizedState(input: any): any | null {
   if (!input || typeof input !== "object") return null;
-
   const state = input.state && typeof input.state === "object" ? input.state : input;
 
   if (
@@ -285,7 +279,10 @@ apiRouter.get("/state/:code", requireDatabase, async (req: Request, res: Respons
     res.json(data);
   } catch (error) {
     console.error("GET state error:", error);
-    res.status(500).json({ message: "Gagal membaca data dari server." });
+    res.status(500).json({ 
+      message: "Gagal membaca data dari server.",
+      detail: error instanceof Error ? error.message : String(error)
+    });
   }
 });
 
