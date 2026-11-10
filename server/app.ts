@@ -52,7 +52,7 @@ export async function ensureTables(): Promise<void> {
         CREATE TABLE IF NOT EXISTS recipes (
           store_code VARCHAR(12) NOT NULL REFERENCES app_stores(access_code) ON DELETE CASCADE,
           id TEXT NOT NULL, name TEXT NOT NULL,
-          category TEXT NOT NULL CHECK (category IN ('Makanan', 'Minuman')),
+          category TEXT NOT NULL CHECK (category IN ('Makanan', 'Minuman', 'Saus', 'Komponen')),
           PRIMARY KEY (store_code, id)
         );
         CREATE TABLE IF NOT EXISTS recipe_ingredients (
@@ -88,6 +88,8 @@ export async function ensureTables(): Promise<void> {
       `);
       try {
         await pool.query(`
+          ALTER TABLE recipes DROP CONSTRAINT IF EXISTS recipes_category_check;
+          ALTER TABLE recipes ADD CONSTRAINT recipes_category_check CHECK (category IN ('Makanan', 'Minuman', 'Saus', 'Komponen'));
           ALTER TABLE recipe_ingredients DROP CONSTRAINT IF EXISTS recipe_ingredients_quantity_check;
           ALTER TABLE recipe_ingredients ADD CONSTRAINT recipe_ingredients_quantity_check CHECK (quantity >= 0);
           ALTER TABLE menu_ingredients DROP CONSTRAINT IF EXISTS menu_ingredients_quantity_check;
@@ -101,7 +103,7 @@ export async function ensureTables(): Promise<void> {
           ALTER TABLE menu_items ADD COLUMN IF NOT EXISTS image_url TEXT;
         `);
       } catch {
-        // Constraints internal migration already applied
+        // Migration constraints handled
       }
     })();
   }
@@ -169,9 +171,12 @@ async function writeState(client: PoolClient, code: string, state: any): Promise
   const validRecipeIds = new Set<string>();
   for (const recipe of state.recipes) {
     validRecipeIds.add(recipe.id);
+    const category = ["Makanan", "Minuman", "Saus", "Komponen"].includes(recipe.category)
+      ? recipe.category
+      : "Makanan";
     await client.query(
       "INSERT INTO recipes (store_code, id, name, category) VALUES ($1, $2, $3, $4)",
-      [code, recipe.id, recipe.name, recipe.category]
+      [code, recipe.id, recipe.name, category]
     );
   }
   for (const recipe of state.recipes) {
