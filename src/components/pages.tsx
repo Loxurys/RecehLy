@@ -344,30 +344,96 @@ export function Dashboard({
   );
 }
 
+
 export function MiniChart({ points }: { points: SalesPoint[] }) {
   const max = Math.max(...points.map((point) => point.value), 1);
-  const labels = points.length <= 3
-    ? points
-    : [points[0], points[Math.floor(points.length / 2)], points[points.length - 1]];
+  const [hovered, setHovered] = useState<string | null>(null);
+
+  const labels =
+    points.length <= 3
+      ? points
+      : [
+          points[0],
+          points[Math.floor(points.length / 2)],
+          points[points.length - 1],
+        ];
+
+  const formatDate = (key: string) => {
+    if (key.includes("-") && key.split("-").length === 3) {
+      const [year, month, day] = key.split("-").map(Number);
+      return new Intl.DateTimeFormat("id-ID", {
+        weekday: "long",
+        day: "numeric",
+        month: "long",
+        year: "numeric",
+      }).format(new Date(year, month - 1, day));
+    }
+
+    if (key.includes("-")) {
+      const [year, month] = key.split("-").map(Number);
+      return new Intl.DateTimeFormat("id-ID", {
+        month: "long",
+        year: "numeric",
+      }).format(new Date(year, month, 1));
+    }
+
+    return `Tahun ${key}`;
+  };
+
   return (
     <>
       <div className="flex h-36 items-end gap-1 pt-4 sm:h-40 sm:gap-1.5">
-        {points.map((point) => (
-          <div key={point.key} className="group flex h-full min-w-0 flex-1 flex-col justify-end">
+        {points.map((point) => {
+          const isHovered = hovered === point.key;
+
+          return (
             <div
-              title={`${point.label}: ${rupiah(point.value)}`}
-              style={{ height: point.value ? `${Math.max((point.value / max) * 100, 5)}%` : "3px" }}
-              className="w-full rounded-t-md bg-[#dcebe5] transition group-hover:bg-moss"
-            />
-          </div>
-        ))}
+              key={point.key}
+              className="group relative flex h-full min-w-0 flex-1 flex-col justify-end"
+              onMouseEnter={() => setHovered(point.key)}
+              onMouseLeave={() => setHovered(null)}
+            >
+              {isHovered && (
+                <div className="absolute bottom-full left-1/2 z-20 mb-2 w-max max-w-48 -translate-x-1/2 rounded-xl border border-line bg-white px-3 py-2.5 shadow-lg pointer-events-none animate-in fade-in zoom-in-95 duration-150">
+                  <p className="text-[11px] font-semibold text-slate-500">
+                    {formatDate(point.key)}
+                  </p>
+                  <p className="mt-1 text-sm font-extrabold text-ink">
+                    {rupiah(point.value)}
+                  </p>
+                  <p className="mt-0.5 text-[10px] text-slate-400">
+                    Total pemasukan
+                  </p>
+                  <div className="absolute left-1/2 top-full -translate-x-1/2 border-[6px] border-transparent border-t-white" />
+                </div>
+              )}
+
+              <div
+                style={{
+                  height: point.value
+                    ? `${Math.max((point.value / max) * 100, 5)}%`
+                    : "3px",
+                }}
+                className={`w-full rounded-t-md transition-all duration-200 ${
+                  isHovered
+                    ? "bg-moss shadow-sm"
+                    : "bg-[#dcebe5] hover:bg-moss/70"
+                }`}
+              />
+            </div>
+          );
+        })}
       </div>
+
       <div className="mt-4 flex justify-between border-t border-line pt-3 text-[11px] font-medium text-slate-400">
-        {labels.map((point) => <span key={point.key}>{point.label}</span>)}
+        {labels.map((point) => (
+          <span key={point.key}>{point.label}</span>
+        ))}
       </div>
     </>
   );
 }
+
 
 export function StockPage({
   stocks,
