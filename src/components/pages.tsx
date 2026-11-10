@@ -729,7 +729,10 @@ export function MenuPage({
       {tab === "menu" ? (
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {filteredProducts.map((product) => {
-            const recipe = recipes.find((item) => item.id === product.recipeId);
+            const linkedRecipes = recipes.filter((item) =>
+              (product.recipeIds || (product.recipeId ? [product.recipeId] : [])).includes(item.id),
+            );
+            const recipe = linkedRecipes[0];
             return (
               <article
                 key={product.id}
@@ -792,7 +795,7 @@ export function MenuPage({
                     }`}
                   >
                     {recipe
-                      ? `Bahan: ${recipe.name} · ${product.recipePortions || 1} porsi`
+                      ? `Bahan: ${linkedRecipes.map((item) => item.name).join(", ")} · ${product.recipePortions || 1} porsi`
                       : "Bahan dasar sendiri "}
                   </p>
                 </div>

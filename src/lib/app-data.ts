@@ -41,6 +41,7 @@ export interface Product {
   price: number;
   imageUrl?: string;
   recipeId?: string;
+  recipeIds?: string[];
   recipePortions?: number;
   ingredients: Ingredient[];
 }
