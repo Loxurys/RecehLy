@@ -65,7 +65,7 @@ import {
 
 
 export const APP_CONFIG = {
-  name: "ini_nama",
+  name: "RecehLy",
   tagline: "Dashboard Kasir & Stok",
   logo: "/favicon.svg",
 };
