@@ -592,19 +592,6 @@ function App() {
               </span>
             </button>
 
-            {/* Switch Data Demo */}
-            <button
-              onClick={switchData}
-              className={`rounded-xl border px-2.5 py-1.5 text-xs font-bold transition active:scale-95 shadow-2xs ${
-                demoData
-                  ? "border-moss/40 bg-[#edf6f2] text-moss"
-                  : "border-line bg-white text-slate-600 hover:bg-slate-50"
-              }`}
-              title="Ganti data pengujian (Demo / Kosong)"
-            >
-              {demoData ? "Data Demo" : "Data Kosong"}
-            </button>
-
             {/* Manual Sync Button */}
             <button
               onClick={manualSync}

@@ -1353,21 +1353,9 @@ export function ReceiptModal({
         </p>
       </div>
       <div className="mt-5">
-        <Field label="Kirim e-Struk via WhatsApp (Opsional)">
-          <input
-            type="tel"
-            inputMode="tel"
-            value={phone}
-            onChange={(e) => setPhone(e.target.value)}
-            placeholder="Nomor HP WhatsApp (Contoh: 08123456789)"
-          />
-        </Field>
         <div className="mt-4 flex gap-3">
           <Button secondary onClick={onClose} full>
             Selesai
-          </Button>
-          <Button onClick={send} full>
-            <Smartphone size={18} /> Kirim WhatsApp
           </Button>
         </div>
       </div>
