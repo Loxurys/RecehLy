@@ -867,7 +867,7 @@ export function MenuModal({
                   : "text-slate-500 hover:text-ink"
               }`}
             >
-              Racik sendiri
+              Bahan dasar sendiri
             </button>
           </div>
         </div>

@@ -617,7 +617,7 @@ export function MenuPage({
         desc={
           tab === "menu"
             ? "Atur menu kasir yang terhubung dengan takaran bahan baku."
-            : "Racikan dasar untuk memudahkan pembuatan porsi menu seragam."
+            : "Bahan dasar untuk memudahkan pembuatan porsi menu seragam."
         }
         action={
           <Button onClick={tab === "menu" ? onAdd : onAddRecipe}>
@@ -727,7 +727,7 @@ export function MenuPage({
                   >
                     {recipe
                       ? `Resep: ${recipe.name} · ${product.recipePortions || 1} porsi`
-                      : "Racik langsung"}
+                      : "Bahan dasar sendiri "}
                   </p>
                 </div>
 
