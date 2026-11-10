@@ -10,6 +10,15 @@ export function normalizeAccessCode(code: string): string {
   return code.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
 }
 
+export function makeAccessCode(length: number = 8): string {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  let result = "";
+  for (let i = 0; i < length; i++) {
+    result += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return result;
+}
+
 // 1. GET State dari Database Online (Neon.tech)
 export async function getRemoteState(
   accessCode: string
