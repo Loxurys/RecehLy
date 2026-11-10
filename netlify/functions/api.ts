@@ -19,12 +19,15 @@ export const handler = async (event: any, context: any) => {
     return await serverlessHandler(event, context);
   } catch (error) {
     console.error("Database initialization error:", error);
+    const code = (error as { code?: string })?.code;
+    const message =
+      code === "ENOTFOUND" || code === "ENETUNREACH"
+        ? "Host database tidak bisa dijangkau. Untuk Supabase, gunakan connection string Connection Pooler (…pooler.supabase.com:6543), bukan db.<ref>.supabase.co, lalu redeploy."
+        : "Gagal terhubung ke database. Periksa koneksi PostgreSQL kamu.";
     return {
       statusCode: 500,
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        message: "Gagal terhubung ke database. Periksa koneksi PostgreSQL kamu.",
-      }),
+      body: JSON.stringify({ message }),
     };
   }
 };

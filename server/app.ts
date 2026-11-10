@@ -292,8 +292,14 @@ async function saveState(code: string, state: any): Promise<void> {
   }
 }
 
-async function readState(poolInstance: any, code: string): Promise<any | null> {
-  const client = await poolInstance.connect();
+async function readState(
+  source: pg.Pool | PoolClient,
+  code: string
+): Promise<any | null> {
+  const ownsClient = source instanceof Pool;
+  const client: PoolClient = ownsClient
+    ? await (source as pg.Pool).connect()
+    : (source as PoolClient);
   try {
     const store = await client.query(
       "SELECT demo_data, updated_at FROM app_stores WHERE access_code = $1",
@@ -307,30 +313,30 @@ async function readState(poolInstance: any, code: string): Promise<any | null> {
       products,
       menuIngredients,
       transactions,
-    ] = await Promise.all([
-      client.query(
+    ] = [
+      await client.query(
         "SELECT * FROM stock_items WHERE store_code = $1 ORDER BY name",
         [code]
       ),
-      client.query(
+      await client.query(
         "SELECT * FROM recipes WHERE store_code = $1 ORDER BY name",
         [code]
       ),
-      client.query("SELECT * FROM recipe_ingredients WHERE store_code = $1", [
+      await client.query("SELECT * FROM recipe_ingredients WHERE store_code = $1", [
         code,
       ]),
-      client.query(
+      await client.query(
         "SELECT * FROM menu_items WHERE store_code = $1 ORDER BY name",
         [code]
       ),
-      client.query("SELECT * FROM menu_ingredients WHERE store_code = $1", [
+      await client.query("SELECT * FROM menu_ingredients WHERE store_code = $1", [
         code,
       ]),
-      client.query(
+      await client.query(
         "SELECT * FROM financial_transactions WHERE store_code = $1 ORDER BY transaction_date DESC, id DESC",
         [code]
       ),
-    ]);
+    ];
     const groupIngredients = (rows: any[], parent: string) => {
       const grouped = new Map<string, any[]>();
       for (const row of rows) {
@@ -389,12 +395,13 @@ async function readState(poolInstance: any, code: string): Promise<any | null> {
       updatedAt: store.rows[0].updated_at,
     };
   } finally {
-    client.release();
+    if (ownsClient) client.release();
   }
 }
 
 async function migrateLegacyState(code: string): Promise<boolean> {
   if (!pool) return false;
+  let state: any | null = null;
   const client = await pool.connect();
   try {
     const existing = await client.query(
@@ -405,13 +412,14 @@ async function migrateLegacyState(code: string): Promise<boolean> {
       "SELECT state FROM app_states WHERE access_code = $1",
       [code]
     );
-    const state = legacy.rowCount ? normalizedState(legacy.rows[0].state) : null;
-    if (!state) return false;
-    await saveState(code, state);
-    return true;
+    state = legacy.rowCount ? normalizedState(legacy.rows[0].state) : null;
   } finally {
+    // Lepas koneksi dulu: pool hanya punya 1 koneksi, saveState butuh koneksi sendiri
     client.release();
   }
+  if (!state) return false;
+  await saveState(code, state);
+  return true;
 }
 
 const apiRouter = express.Router();
@@ -427,9 +435,9 @@ apiRouter.get("/state/:code", requireDatabase, async (request: Request, response
     return;
   }
   try {
-    let result = await readState(pool, code);
+    let result = await readState(pool!, code);
     if (!result && (await migrateLegacyState(code)))
-      result = await readState(pool, code);
+      result = await readState(pool!, code);
     if (!result) {
       response.status(404).json({ message: "Data belum dibuat." });
       return;
@@ -450,7 +458,7 @@ apiRouter.put("/state/:code", requireDatabase, async (request: Request, response
   }
   try {
     await saveState(code, state);
-    const saved = await readState(pool, code);
+    const saved = await readState(pool!, code);
     response.json({ updatedAt: saved.updatedAt });
   } catch (error) {
     console.error("PUT state error:", error);
@@ -574,7 +582,8 @@ apiRouter.post(
         [code]
       );
       await client.query("COMMIT");
-      const state = await readState(pool, code);
+      // Pakai client yang sama: pool hanya punya 1 koneksi
+      const state = await readState(client, code);
       response.json({ ...state, sale });
     } catch (error) {
       await client.query("ROLLBACK");
