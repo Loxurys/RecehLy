@@ -1526,21 +1526,18 @@ export function ConnectionModal({
               className="text-center font-mono font-bold uppercase tracking-widest"
             />
           </Field>
-
-          <Button
+          <button
             type="submit"
             disabled={code.length < 6 || busy}
-            full
+            className="w-full rounded-xl bg-moss px-4 py-3 text-sm font-bold text-white disabled:opacity-50"
           >
             {busy ? "Menyambungkan..." : "Sambungkan perangkat"}
-          </Button>
+          </button>
         </form>
-
         {currentCode && (
           <div className="rounded-xl bg-emerald-50 p-3 text-xs text-emerald-800">
             <p className="font-bold">Terhubung</p>
             <p className="mt-1 font-mono">{currentCode}</p>
-
             <button
               type="button"
               onClick={onDisconnect}
