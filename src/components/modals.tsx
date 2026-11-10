@@ -1448,6 +1448,7 @@ export function TutorialModal({ onClose }: { onClose: () => void }) {
   );
 }
 
+
 export function ConnectionModal({
   currentCode,
   busy,
@@ -1461,57 +1462,96 @@ export function ConnectionModal({
   onConnect: (code: string) => void;
   onDisconnect: () => void;
 }) {
-  const [code, setCode] = useState(currentCode || makeAccessCode());
-  const valid = code.length >= 6;
+  const [code, setCode] = useState(currentCode || "");
 
-  const handleSubmit = (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
-    if (valid && !busy) {
-      onConnect(code);
-    }
+  const handleCreate = () => {
+    const newCode = makeAccessCode();
+    setCode(newCode);
+    onConnect(newCode);
+  };
+
+  const handleConnect = (e: React.FormEvent) => {
+    e.preventDefault();
+
+    const normalized = normalizeAccessCode(code);
+    if (normalized.length < 6 || busy) return;
+
+    onConnect(normalized);
   };
 
   return (
-    <Modal title="Sinkronisasi antar perangkat" onClose={onClose}>
-      <form onSubmit={handleSubmit} className="grid gap-4">
-        <div className="rounded-xl bg-blue-50/70 p-3.5 text-xs text-blue-900 leading-relaxed">
-          Pakai kode yang sama di setiap perangkat. Data akan tersimpan dan diperbarui dari database online.
+    <Modal title="Sinkronisasi perangkat" onClose={onClose}>
+      <div className="grid gap-4">
+
+        <div className="rounded-xl bg-blue-50 p-3.5 text-xs text-blue-900">
+          Buat ruang sinkronisasi baru atau sambungkan perangkat
+          menggunakan kode yang sudah tersedia.
         </div>
-        <Field label="Kode sinkronisasi (6–12 karakter)">
-          <input
-            value={code}
-            onChange={(event) => setCode(normalizeAccessCode(event.target.value))}
-            maxLength={12}
-            className="font-mono uppercase tracking-[0.2em] font-bold text-center text-lg"
-            placeholder="CONTOH12"
-            autoFocus
-          />
-        </Field>
-        <div className="flex items-center justify-between">
+
+        {/* BUAT RUANG */}
+        <div className="rounded-xl border border-line p-4">
+          <p className="font-bold text-ink text-sm">
+            Buat sinkronisasi baru
+          </p>
+          <p className="mt-1 text-xs text-slate-500">
+            Buat kode baru untuk digunakan bersama perangkat lain.
+          </p>
+
           <button
             type="button"
-            onClick={() => setCode(makeAccessCode())}
-            className="text-xs font-bold text-moss hover:underline"
+            onClick={handleCreate}
+            disabled={busy}
+            className="mt-3 w-full rounded-xl bg-moss px-4 py-3 text-sm font-bold text-white disabled:opacity-50"
           >
-            + Buat kode acak otomatis
+            {busy ? "Memproses..." : "+ Buat dan sambungkan"}
           </button>
-          {currentCode && (
-            <span className="text-xs font-semibold text-emerald-700">
-              Aktif: {currentCode}
-            </span>
-          )}
         </div>
-        <div className="flex flex-col gap-2 pt-2 sm:flex-row">
-          <Button disabled={!valid || busy} onClick={() => onConnect(code)} full>
-            {busy ? "Menyambungkan..." : currentCode === code ? "Segarkan koneksi" : "Sambungkan perangkat"}
+
+        <div className="flex items-center gap-3">
+          <div className="h-px flex-1 bg-line" />
+          <span className="text-xs text-slate-400">ATAU</span>
+          <div className="h-px flex-1 bg-line" />
+        </div>
+
+        {/* SAMBUNGKAN */}
+        <form onSubmit={handleConnect} className="grid gap-3">
+          <Field label="Kode sinkronisasi">
+            <input
+              value={code}
+              onChange={(e) =>
+                setCode(normalizeAccessCode(e.target.value))
+              }
+              maxLength={12}
+              placeholder="MASUKKAN KODE"
+              className="text-center font-mono font-bold uppercase tracking-widest"
+            />
+          </Field>
+
+          <Button
+            type="submit"
+            disabled={code.length < 6 || busy}
+            full
+          >
+            {busy ? "Menyambungkan..." : "Sambungkan perangkat"}
           </Button>
-          {currentCode && (
-            <Button secondary onClick={onDisconnect} full>
-              Gunakan data perangkat
-            </Button>
-          )}
-        </div>
-      </form>
+        </form>
+
+        {currentCode && (
+          <div className="rounded-xl bg-emerald-50 p-3 text-xs text-emerald-800">
+            <p className="font-bold">Terhubung</p>
+            <p className="mt-1 font-mono">{currentCode}</p>
+
+            <button
+              type="button"
+              onClick={onDisconnect}
+              className="mt-2 font-bold text-rose-600"
+            >
+              Putuskan koneksi
+            </button>
+          </div>
+        )}
+
+      </div>
     </Modal>
   );
 }
