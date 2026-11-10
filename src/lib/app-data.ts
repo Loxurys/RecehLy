@@ -26,7 +26,6 @@ export interface Product {
   recipePortions?: number;
   ingredients: Ingredient[];
 }
-
 export interface Recipe {
   id: string;
   name: string;
