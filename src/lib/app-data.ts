@@ -60,22 +60,21 @@ export interface Transaction {
   category?: string;
 }
 
+// Format Tanggal Lokal (WIB / Local Timezone) - Mencegah tanggal transaksi mundur ke kemarin
+export function getLocalDateString(): string {
+  const d = new Date();
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 export const selectableUnits = (stock?: Stock): IngredientUnit[] => {
   if (!stock) return ["gram", "kg", "ons", "ml", "liter", "pcs", "bungkus", "botol", "sachet"];
   const u = stock.unit;
   if (u === "kg" || u === "ons" || u === "gram") return ["gram", "ons", "kg"];
   if (u === "liter" || u === "ml") return ["ml", "liter"];
   return [u];
-};
-
-export const usedStockUnits = (ingredient: Ingredient, stock?: Stock): number => {
-  if (!ingredient) return 0;
-  const ingQty = ingredient.quantity || 0;
-  const ingUnit = ingredient.unit;
-  const stockUnit = stock?.unit || ingUnit;
-
-  const baseQty = grams(ingQty, ingUnit);
-  return fromBaseUnits(baseQty, stockUnit);
 };
 
 export function rupiah(value: number): string {
@@ -123,9 +122,18 @@ export function fromBaseUnits(quantity: number, targetUnit: IngredientUnit): num
       break;
   }
 
-  // Pembulatan presisi 3 angka di belakang koma (mencegah desimal panjang 4.9988)
   return Math.round(result * 1000) / 1000;
 }
+
+export const usedStockUnits = (ingredient: Ingredient, stock?: Stock): number => {
+  if (!ingredient) return 0;
+  const ingQty = ingredient.quantity || 0;
+  const ingUnit = ingredient.unit;
+  const stockUnit = stock?.unit || ingUnit;
+
+  const baseGram = grams(ingQty, ingUnit);
+  return fromBaseUnits(baseGram, stockUnit);
+};
 
 export function recipeUnit(ingredient: Ingredient, stock?: Stock): string {
   if (!ingredient) return "";
@@ -235,7 +243,7 @@ export const initialProducts: Product[] = [
 export const initialTransactions: Transaction[] = [
   {
     id: "t1",
-    date: new Date().toISOString().slice(0, 10),
+    date: getLocalDateString(),
     type: "income",
     title: "Bakso Sapi Spesial x2, Es Teh Manis Jumbo x2",
     amount: 50000,

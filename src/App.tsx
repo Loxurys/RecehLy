@@ -13,11 +13,10 @@ import {
   ShoppingBasket,
   Smartphone,
   Wallet,
-  X,
 } from "lucide-react";
 import {
+  getLocalDateString,
   grams,
-  fromBaseUnits,
   initialProducts,
   initialRecipes,
   initialStock,
@@ -62,7 +61,6 @@ import {
   StockModal,
   TutorialModal,
 } from "./components/modals";
-
 
 export const APP_CONFIG = {
   name: "RecehLy",
@@ -138,7 +136,6 @@ function App() {
     }, 2800);
   }, []);
 
-  // Simpan state secara terpadu tanpa race condition & stale snapshot
   const commitState = useCallback(
     (next: AppState, toastMsg?: string) => {
       setStocks(next.stocks);
@@ -154,7 +151,6 @@ function App() {
       localStorage.setItem("app-mode", next.demoData ? "sample" : "empty");
       localStorage.setItem("app-last-sync", new Date().toISOString());
 
-      // Kirim sinyal ke tab browser yang sama
       try {
         const channel = new BroadcastChannel("app-sync");
         channel.postMessage("sync");
@@ -163,7 +159,6 @@ function App() {
         // BroadcastChannel unavailable
       }
 
-      // Kirim langsung ke server database online jika sedang tersambung
       if (accessCode) {
         setSyncStatus("syncing");
         saveRemoteState(accessCode, next)
@@ -184,20 +179,17 @@ function App() {
     [accessCode, showToast],
   );
 
-  // Menerima snapshot dari server atau tab lain (TIDAK PERNAH menghapus keranjang kasir)
   const applySnapshot = useCallback((next: AppState) => {
     setStocks(next.stocks);
     setProducts(next.products);
     setRecipes(next.recipes);
     setTransactions(next.transactions);
     setDemoData(next.demoData);
-    // Pertahankan item keranjang kasir yang produknya masih ada
     setCart((prev) =>
       prev.filter((item) => next.products.some((p) => p.id === item.product.id)),
     );
   }, []);
 
-  // Hubungkan ke server saat accessCode aktif pertama kali
   useEffect(() => {
     if (!accessCode) {
       setSyncStatus("local");
@@ -238,14 +230,12 @@ function App() {
     };
   }, [accessCode, applySnapshot, showToast]);
 
-  // Polling sinkronisasi antar HP berkala (5 detik)
   useEffect(() => {
     if (!accessCode || !remoteReady) return;
     const interval = window.setInterval(() => {
       getRemoteState(accessCode)
         .then((remote) => {
           if (!remote) return;
-          // Hanya update jika timestamp di server benar-benar berubah dari HP lain
           if (
             lastKnownServerUpdatedAt.current &&
             remote.updatedAt === lastKnownServerUpdatedAt.current
@@ -264,7 +254,6 @@ function App() {
     return () => window.clearInterval(interval);
   }, [accessCode, applySnapshot, remoteReady, showToast]);
 
-  // Sinkronisasi antar-tab dalam browser yang sama
   useEffect(() => {
     const channel = new BroadcastChannel("app-sync");
     channel.onmessage = () => {
@@ -338,24 +327,6 @@ function App() {
     showToast("Menggunakan penyimpanan offline perangkat");
   };
 
-  const switchData = () => {
-    const nextDemoData = !demoData;
-    const nextState: AppState = {
-      stocks: nextDemoData ? initialStock : [],
-      products: nextDemoData ? initialProducts : [],
-      recipes: nextDemoData ? initialRecipes : [],
-      transactions: nextDemoData ? initialTransactions : [],
-      demoData: nextDemoData,
-    };
-    commitState(
-      nextState,
-      nextDemoData
-        ? "Data contoh dimuat ulang"
-        : "Data kosong aktif. Siap dites dari nol.",
-    );
-    setCart([]);
-  };
-
   const income = transactions
     .filter((t) => t.type === "income")
     .reduce((sum, t) => sum + t.amount, 0);
@@ -406,7 +377,7 @@ function App() {
       const stock = stocks.find((s) => s.id === ingredient.stockId);
       return (
         stock &&
-        grams(stock) >= usedStockUnits(ingredient, stock) * item.quantity
+        stock.quantity >= usedStockUnits(ingredient, stock) * item.quantity
       );
     });
 
@@ -447,7 +418,7 @@ function App() {
 
     const sale: Transaction = {
       id: crypto.randomUUID(),
-      date: new Date().toISOString().slice(0, 10),
+      date: getLocalDateString(),
       type: "income",
       title: cart.map((i) => `${i.product.name} x${i.quantity}`).join(", "),
       amount: total,
@@ -455,7 +426,7 @@ function App() {
     };
 
     const nextStocks = stocks.map((stock) => {
-      const used = cart.reduce((sum, item) => {
+      const usedInStockUnit = cart.reduce((sum, item) => {
         const ingredient = productIngredients(item.product).find(
           (i) => i.stockId === stock.id,
         );
@@ -464,13 +435,15 @@ function App() {
           (ingredient ? usedStockUnits(ingredient, stock) : 0) * item.quantity
         );
       }, 0);
-      return used
-        ? {
-            ...stock,
-            quantity: fromBaseUnits(grams(stock) - used, stock.unit),
-            updatedAt: "Baru saja",
-          }
-        : stock;
+
+      if (!usedInStockUnit) return stock;
+
+      const remaining = Math.max(0, stock.quantity - usedInStockUnit);
+      return {
+        ...stock,
+        quantity: Math.round(remaining * 1000) / 1000,
+        updatedAt: "Baru saja",
+      };
     });
 
     const nextTransactions = [sale, ...transactions];
@@ -491,7 +464,6 @@ function App() {
 
   return (
     <div className="min-h-screen bg-[#f8f7f2] text-ink flex flex-col">
-      {/* Sidebar Desktop */}
       <aside className="no-print fixed inset-y-0 left-0 z-30 hidden w-64 flex-col border-r border-line bg-white lg:flex">
         <div className="flex items-center gap-3 px-6 py-6 border-b border-line/60">
           <div className="grid h-10 w-10 place-items-center rounded-xl overflow-hidden bg-moss text-white shadow-xs">
@@ -533,7 +505,7 @@ function App() {
           </div>
           <p className="text-xs leading-relaxed text-slate-600">
             {accessCode
-              ? `Kode aktif: ${accessCode}. Tersambung online ke Supabase.`
+              ? `Kode aktif: ${accessCode}. Tersambung online.`
               : "Berjalan offline. Sambungkan kode untuk multi-HP."}
           </p>
           <button
@@ -545,9 +517,7 @@ function App() {
         </div>
       </aside>
 
-      {/* Main Container */}
       <main className="lg:ml-64 flex-1 flex flex-col">
-        {/* Sticky Header Responsive */}
         <header className="no-print sticky top-0 z-20 flex h-16 sm:h-18 items-center justify-between border-b border-line bg-[#f8f7f2]/95 px-3.5 sm:px-8 backdrop-blur">
           <div className="flex items-center gap-2 sm:gap-3">
             <div className="hidden sm:block">
@@ -564,7 +534,6 @@ function App() {
           </div>
 
           <div className="flex items-center gap-1.5 sm:gap-2">
-            {/* Status Koneksi Online Pill (Bisa diklik di Mobile & Desktop) */}
             <button
               onClick={() => setModal("connection")}
               className={`flex items-center gap-1.5 rounded-full px-2.5 py-1.5 sm:px-3 text-xs font-bold transition active:scale-95 shadow-2xs ${
@@ -592,7 +561,6 @@ function App() {
               </span>
             </button>
 
-            {/* Manual Sync Button */}
             <button
               onClick={manualSync}
               className="rounded-xl border border-line bg-white p-2 text-slate-600 hover:bg-slate-50 active:scale-95 shadow-2xs"
@@ -609,7 +577,6 @@ function App() {
               <CircleHelp size={17} />
             </button>
 
-            {/* Low Stock Indicator */}
             <button
               onClick={() => setPage("stock")}
               className="relative rounded-xl border border-line bg-white p-2 text-slate-600 hover:bg-slate-50 shadow-2xs"
@@ -626,14 +593,12 @@ function App() {
           </div>
         </header>
 
-        {/* Floating Toast Notification */}
         {notice && (
           <div className="no-print fixed right-4 top-20 z-50 rounded-2xl bg-slate-900/95 px-4 py-3 text-xs font-semibold text-white shadow-xl backdrop-blur animate-in fade-in slide-in-from-top-2">
             {notice}
           </div>
         )}
 
-        {/* Page Content */}
         <div className="mx-auto w-full max-w-7xl flex-1 p-3.5 pb-24 sm:p-6 lg:p-8 lg:pb-8">
           {page === "dashboard" && (
             <Dashboard
@@ -667,7 +632,7 @@ function App() {
                 );
                 if (usedInMenu || usedInRecipe) {
                   showToast(
-                    "Bahan masih dipakai menu atau Bahan. Hapus pemakaiannya dulu.",
+                    "Bahan masih dipakai menu atau Bahan Dasar. Hapus pemakaiannya dulu.",
                   );
                   return;
                 }
@@ -743,31 +708,105 @@ function App() {
         {["dashboard", "stock"].map((id) => {
           const item = nav.find((entry) => entry.id === id)!;
           const active = page === item.id;
-          return <button key={item.id} onClick={() => setPage(item.id)} className={`relative grid justify-items-center gap-0.5 text-[9px] font-semibold ${active ? "text-white" : "text-white/55"}`}><item.icon size={18} /><span>{item.label.split(" ")[0]}</span>{item.id === "stock" && lowStock.length > 0 && <span className="absolute right-5 top-0 h-1.5 w-1.5 rounded-full bg-rose-400" />}</button>;
+          return (
+            <button
+              key={item.id}
+              onClick={() => setPage(item.id)}
+              className={`relative grid justify-items-center gap-0.5 text-[9px] font-semibold ${
+                active ? "text-white" : "text-white/55"
+              }`}
+            >
+              <item.icon size={18} />
+              <span>{item.label.split(" ")[0]}</span>
+              {item.id === "stock" && lowStock.length > 0 && (
+                <span className="absolute right-5 top-0 h-1.5 w-1.5 rounded-full bg-rose-400" />
+              )}
+            </button>
+          );
         })}
-        <button onClick={() => setPage("cashier")} className="relative -top-5 grid h-15 w-15 justify-self-center place-items-center rounded-full border-4 border-[#f8f7f2] bg-moss text-white shadow-lg active:scale-95" title="Kasir"><ShoppingBasket size={23} /></button>
+        <button
+          onClick={() => setPage("cashier")}
+          className="relative -top-5 grid h-15 w-15 justify-self-center place-items-center rounded-full border-4 border-[#f8f7f2] bg-moss text-white shadow-lg active:scale-95"
+          title="Kasir"
+        >
+          <ShoppingBasket size={23} />
+        </button>
         {["menu"].map((id) => {
           const item = nav.find((entry) => entry.id === id)!;
           const active = page === item.id;
-          return <button key={item.id} onClick={() => setPage(item.id)} className={`grid justify-items-center gap-0.5 text-[9px] font-semibold ${active ? "text-white" : "text-white/55"}`}><item.icon size={18} /><span>Menu</span></button>;
+          return (
+            <button
+              key={item.id}
+              onClick={() => setPage(item.id)}
+              className={`grid justify-items-center gap-0.5 text-[9px] font-semibold ${
+                active ? "text-white" : "text-white/55"
+              }`}
+            >
+              <item.icon size={18} />
+              <span>Menu</span>
+            </button>
+          );
         })}
-        <button onClick={() => setMobileMoreOpen(true)} className="grid justify-items-center gap-0.5 text-[9px] font-semibold text-white/55"><MenuIcon size={18} /><span>Lainnya</span></button>
+        <button
+          onClick={() => setMobileMoreOpen(true)}
+          className="grid justify-items-center gap-0.5 text-[9px] font-semibold text-white/55"
+        >
+          <MenuIcon size={18} />
+          <span>Lainnya</span>
+        </button>
       </nav>
 
       {mobileMoreOpen && (
-        <div onClick={(event) => event.target === event.currentTarget && setMobileMoreOpen(false)} className="no-print fixed inset-0 z-50 flex items-end bg-slate-950/40 p-3 lg:hidden">
+        <div
+          onClick={(event) =>
+            event.target === event.currentTarget && setMobileMoreOpen(false)
+          }
+          className="no-print fixed inset-0 z-50 flex items-end bg-slate-950/40 p-3 lg:hidden"
+        >
           <div className="w-full rounded-3xl bg-white p-4 shadow-2xl">
             <div className="mx-auto mb-4 h-1.5 w-10 rounded-full bg-slate-200" />
             <div className="grid grid-cols-2 gap-3">
-              {["finance", "report"].map((id) => { const item = nav.find((entry) => entry.id === id)!; return <button key={item.id} onClick={() => { setPage(item.id); setMobileMoreOpen(false); }} className="flex items-center gap-3 rounded-2xl bg-slate-50 p-4 text-left text-sm font-bold text-ink"><item.icon size={20} className="text-moss" />{item.label}</button>; })}
-              <button onClick={() => { setMobileMoreOpen(false); setModal("connection"); }} className="col-span-2 flex items-center gap-3 rounded-2xl bg-[#edf6f2] p-4 text-left text-sm font-bold text-moss"><Smartphone size={20} />Sinkron antar perangkat</button>
-              <button onClick={() => { setMobileMoreOpen(false); setTutorialOpen(true); }} className="col-span-2 flex items-center gap-3 rounded-2xl bg-slate-50 p-4 text-left text-sm font-bold text-slate-700"><CircleHelp size={20} className="text-moss" />Cara pakai</button>
+              {["finance", "report"].map((id) => {
+                const item = nav.find((entry) => entry.id === id)!;
+                return (
+                  <button
+                    key={item.id}
+                    onClick={() => {
+                      setPage(item.id);
+                      setMobileMoreOpen(false);
+                    }}
+                    className="flex items-center gap-3 rounded-2xl bg-slate-50 p-4 text-left text-sm font-bold text-ink"
+                  >
+                    <item.icon size={20} className="text-moss" />
+                    {item.label}
+                  </button>
+                );
+              })}
+              <button
+                onClick={() => {
+                  setMobileMoreOpen(false);
+                  setModal("connection");
+                }}
+                className="col-span-2 flex items-center gap-3 rounded-2xl bg-[#edf6f2] p-4 text-left text-sm font-bold text-moss"
+              >
+                <Smartphone size={20} />
+                Sinkron antar perangkat
+              </button>
+              <button
+                onClick={() => {
+                  setMobileMoreOpen(false);
+                  setTutorialOpen(true);
+                }}
+                className="col-span-2 flex items-center gap-3 rounded-2xl bg-slate-50 p-4 text-left text-sm font-bold text-slate-700"
+              >
+                <CircleHelp size={20} className="text-moss" />
+                Cara pakai
+              </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Modals Dialog */}
       {modal === "stock" && (
         <StockModal
           onClose={() => setModal(null)}
@@ -776,7 +815,7 @@ function App() {
             const nextTransactions: Transaction[] = [
               {
                 id: crypto.randomUUID(),
-                date: new Date().toISOString().slice(0, 10),
+                date: getLocalDateString(),
                 type: "expense",
                 title: `Belanja stok: ${stock.name}`,
                 amount: stock.quantity * stock.buyPrice,
@@ -818,7 +857,7 @@ function App() {
             const nextTransactions: Transaction[] = [
               {
                 id: crypto.randomUUID(),
-                date: new Date().toISOString().slice(0, 10),
+                date: getLocalDateString(),
                 type: "expense",
                 title: `Belanja stok: ${restockTarget.name}`,
                 amount: quantity * buyPrice,
