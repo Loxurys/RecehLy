@@ -5,15 +5,26 @@ const { Pool } = pg;
 import { randomUUID } from "node:crypto";
 
 const databaseUrl = process.env.DATABASE_URL;
+
+// Konfigurasi Pool yang lebih aman untuk Serverless Environment (Netlify)
 export const pool = databaseUrl
   ? new Pool({
       connectionString: databaseUrl,
-      ssl: { rejectUnauthorized: false },
-      max: 5,
-      idleTimeoutMillis: 30000,
-      connectionTimeoutMillis: 5000,
+      ssl: databaseUrl.includes("localhost") || databaseUrl.includes("127.0.0.1")
+        ? false
+        : { rejectUnauthorized: false },
+      max: 1, // Di serverless, gunakan max 1 koneksi per function instance
+      idleTimeoutMillis: 10000,
+      connectionTimeoutMillis: 10000,
     })
   : null;
+
+// Error handler agar instance Pool tidak crash saat koneksi idle putus
+if (pool) {
+  pool.on("error", (err) => {
+    console.error("Unexpected error on idle PostgreSQL client:", err);
+  });
+}
 
 export const app = express();
 app.use(express.json({ limit: "5mb" }));
@@ -33,8 +44,10 @@ export async function ensureTables(): Promise<void> {
   if (!pool) return;
   if (!tablesReadyPromise) {
     tablesReadyPromise = (async () => {
+      let client: PoolClient | null = null;
       try {
-        await pool.query(`
+        client = await pool.connect();
+        await client.query(`
           CREATE TABLE IF NOT EXISTS app_stores (
             access_code VARCHAR(12) PRIMARY KEY,
             demo_data BOOLEAN NOT NULL DEFAULT TRUE,
@@ -88,7 +101,7 @@ export async function ensureTables(): Promise<void> {
           );
         `);
         try {
-          await pool.query(`
+          await client.query(`
             ALTER TABLE recipes DROP CONSTRAINT IF EXISTS recipes_category_check;
             ALTER TABLE recipes ADD CONSTRAINT recipes_category_check CHECK (category IN ('Makanan', 'Minuman', 'Saus', 'Komponen'));
             ALTER TABLE recipe_ingredients DROP CONSTRAINT IF EXISTS recipe_ingredients_quantity_check;
@@ -110,6 +123,8 @@ export async function ensureTables(): Promise<void> {
         tablesReadyPromise = null;
         console.error("ensureTables query error:", err);
         throw err;
+      } finally {
+        if (client) client.release();
       }
     })();
   }
@@ -277,116 +292,126 @@ async function saveState(code: string, state: any): Promise<void> {
   }
 }
 
-async function readState(client: any, code: string): Promise<any | null> {
-  const store = await client.query(
-    "SELECT demo_data, updated_at FROM app_stores WHERE access_code = $1",
-    [code]
-  );
-  if (!store.rowCount) return null;
-  const [
-    stocks,
-    recipes,
-    recipeIngredients,
-    products,
-    menuIngredients,
-    transactions,
-  ] = await Promise.all([
-    client.query(
-      "SELECT * FROM stock_items WHERE store_code = $1 ORDER BY name",
+async function readState(poolInstance: any, code: string): Promise<any | null> {
+  const client = await poolInstance.connect();
+  try {
+    const store = await client.query(
+      "SELECT demo_data, updated_at FROM app_stores WHERE access_code = $1",
       [code]
-    ),
-    client.query(
-      "SELECT * FROM recipes WHERE store_code = $1 ORDER BY name",
-      [code]
-    ),
-    client.query("SELECT * FROM recipe_ingredients WHERE store_code = $1", [
-      code,
-    ]),
-    client.query(
-      "SELECT * FROM menu_items WHERE store_code = $1 ORDER BY name",
-      [code]
-    ),
-    client.query("SELECT * FROM menu_ingredients WHERE store_code = $1", [
-      code,
-    ]),
-    client.query(
-      "SELECT * FROM financial_transactions WHERE store_code = $1 ORDER BY transaction_date DESC, id DESC",
-      [code]
-    ),
-  ]);
-  const groupIngredients = (rows: any[], parent: string) => {
-    const grouped = new Map<string, any[]>();
-    for (const row of rows) {
-      const values = grouped.get(String(row[parent])) || [];
-      values.push({
-        stockId: String(row.stock_id),
-        quantity: asNumber(row.quantity),
-        unit: row.unit,
-      });
-      grouped.set(String(row[parent]), values);
-    }
-    return grouped;
-  };
-  const recipeParts = groupIngredients(recipeIngredients.rows, "recipe_id");
-  const menuParts = groupIngredients(menuIngredients.rows, "menu_id");
-  return {
-    state: {
-      stocks: stocks.rows.map((stock: any) => ({
-        id: stock.id,
-        name: stock.name,
-        quantity: asNumber(stock.quantity),
-        unit: stock.unit,
-        buyPrice: asNumber(stock.buy_price),
-        minimum: asNumber(stock.minimum_quantity),
-        updatedAt: stock.updated_label,
-      })),
-      recipes: recipes.rows.map((recipe: any) => ({
-        id: recipe.id,
-        name: recipe.name,
-        category: recipe.category,
-        ingredients: recipeParts.get(recipe.id) || [],
-      })),
-      products: products.rows.map((product: any) => ({
-        id: product.id,
-        name: product.name,
-        price: asNumber(product.price),
-        imageUrl: product.image_url || undefined,
-        recipeId: product.recipe_id || undefined,
-        recipePortions: product.recipe_portions
-          ? asNumber(product.recipe_portions)
-          : undefined,
-        ingredients: menuParts.get(product.id) || [],
-      })),
-      transactions: transactions.rows.map((transaction: any) => ({
-        id: transaction.id,
-        date: new Date(transaction.transaction_date)
-          .toISOString()
-          .slice(0, 10),
-        type: transaction.type,
-        title: transaction.title,
-        amount: asNumber(transaction.amount),
-        method: transaction.method,
-      })),
-      demoData: store.rows[0].demo_data,
-    },
-    updatedAt: store.rows[0].updated_at,
-  };
+    );
+    if (!store.rowCount) return null;
+    const [
+      stocks,
+      recipes,
+      recipeIngredients,
+      products,
+      menuIngredients,
+      transactions,
+    ] = await Promise.all([
+      client.query(
+        "SELECT * FROM stock_items WHERE store_code = $1 ORDER BY name",
+        [code]
+      ),
+      client.query(
+        "SELECT * FROM recipes WHERE store_code = $1 ORDER BY name",
+        [code]
+      ),
+      client.query("SELECT * FROM recipe_ingredients WHERE store_code = $1", [
+        code,
+      ]),
+      client.query(
+        "SELECT * FROM menu_items WHERE store_code = $1 ORDER BY name",
+        [code]
+      ),
+      client.query("SELECT * FROM menu_ingredients WHERE store_code = $1", [
+        code,
+      ]),
+      client.query(
+        "SELECT * FROM financial_transactions WHERE store_code = $1 ORDER BY transaction_date DESC, id DESC",
+        [code]
+      ),
+    ]);
+    const groupIngredients = (rows: any[], parent: string) => {
+      const grouped = new Map<string, any[]>();
+      for (const row of rows) {
+        const values = grouped.get(String(row[parent])) || [];
+        values.push({
+          stockId: String(row.stock_id),
+          quantity: asNumber(row.quantity),
+          unit: row.unit,
+        });
+        grouped.set(String(row[parent]), values);
+      }
+      return grouped;
+    };
+    const recipeParts = groupIngredients(recipeIngredients.rows, "recipe_id");
+    const menuParts = groupIngredients(menuIngredients.rows, "menu_id");
+    return {
+      state: {
+        stocks: stocks.rows.map((stock: any) => ({
+          id: stock.id,
+          name: stock.name,
+          quantity: asNumber(stock.quantity),
+          unit: stock.unit,
+          buyPrice: asNumber(stock.buy_price),
+          minimum: asNumber(stock.minimum_quantity),
+          updatedAt: stock.updated_label,
+        })),
+        recipes: recipes.rows.map((recipe: any) => ({
+          id: recipe.id,
+          name: recipe.name,
+          category: recipe.category,
+          ingredients: recipeParts.get(recipe.id) || [],
+        })),
+        products: products.rows.map((product: any) => ({
+          id: product.id,
+          name: product.name,
+          price: asNumber(product.price),
+          imageUrl: product.image_url || undefined,
+          recipeId: product.recipe_id || undefined,
+          recipePortions: product.recipe_portions
+            ? asNumber(product.recipe_portions)
+            : undefined,
+          ingredients: menuParts.get(product.id) || [],
+        })),
+        transactions: transactions.rows.map((transaction: any) => ({
+          id: transaction.id,
+          date: new Date(transaction.transaction_date)
+            .toISOString()
+            .slice(0, 10),
+          type: transaction.type,
+          title: transaction.title,
+          amount: asNumber(transaction.amount),
+          method: transaction.method,
+        })),
+        demoData: store.rows[0].demo_data,
+      },
+      updatedAt: store.rows[0].updated_at,
+    };
+  } finally {
+    client.release();
+  }
 }
 
 async function migrateLegacyState(code: string): Promise<boolean> {
   if (!pool) return false;
-  const existing = await pool.query(
-    "SELECT to_regclass('public.app_states') AS legacy_table"
-  );
-  if (!existing.rows[0].legacy_table) return false;
-  const legacy = await pool.query(
-    "SELECT state FROM app_states WHERE access_code = $1",
-    [code]
-  );
-  const state = legacy.rowCount ? normalizedState(legacy.rows[0].state) : null;
-  if (!state) return false;
-  await saveState(code, state);
-  return true;
+  const client = await pool.connect();
+  try {
+    const existing = await client.query(
+      "SELECT to_regclass('public.app_states') AS legacy_table"
+    );
+    if (!existing.rows[0].legacy_table) return false;
+    const legacy = await client.query(
+      "SELECT state FROM app_states WHERE access_code = $1",
+      [code]
+    );
+    const state = legacy.rowCount ? normalizedState(legacy.rows[0].state) : null;
+    if (!state) return false;
+    await saveState(code, state);
+    return true;
+  } finally {
+    client.release();
+  }
 }
 
 const apiRouter = express.Router();
