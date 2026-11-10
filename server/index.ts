@@ -16,7 +16,7 @@ ensureTables()
   .then(() => {
     app.listen(port, () => console.log(`Server jalan di port ${port}`));
   })
-  .catch((error) => {
+  .catch((error: unknown) => {
     console.error("Database gagal dihubungkan", error);
     process.exit(1);
   });

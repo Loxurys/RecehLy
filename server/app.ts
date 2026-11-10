@@ -1,6 +1,7 @@
 import express, { Request, Response, NextFunction } from "express";
 import { Pool } from "pg";
 
+
 export const app = express();
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ limit: "10mb", extended: true }));
@@ -21,7 +22,7 @@ export const pool = databaseUrl
 
 let tablesEnsured = false;
 
-async function ensureTables() {
+export async function ensureTables() {
   if (!pool || tablesEnsured) return;
   const client = await pool.connect();
   try {
