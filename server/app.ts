@@ -259,34 +259,29 @@ apiRouter.get("/state/:code", requireDatabase, async (request, response) => {
 apiRouter.put("/state/:code", requireDatabase, async (request, response) => {
   const code = String(request.params.code).toUpperCase();
 
-  console.log("PUT DEBUG:", {
-    code,
-    contentType: request.headers["content-type"],
-    bodyType: typeof request.body,
-    bodyKeys: Object.keys(request.body || {}),
-    stateKeys: Object.keys(request.body?.state || {}),
-  });
-
-  const state = normalizedState(request.body?.state);
-
-  if (!validCode(code)) {
-    return response.status(400).json({ message: "Kode akses tidak valid." });
-  }
-
-  if (!state) {
-    return response.status(400).json({
-      message: "State tidak terbaca oleh server.",
-      received: Object.keys(request.body || {}),
-    });
-  }
-
   try {
+    const body =
+      typeof request.body === "string"
+        ? JSON.parse(request.body)
+        : request.body;
+
+    const state = normalizedState(body?.state);
+
+    if (!validCode(code) || !state) {
+      return response.status(400).json({
+        message: "Data atau kode akses tidak valid.",
+      });
+    }
+
     await saveState(code, state);
+
     const saved = await readState(pool!, code);
-    response.json({ updatedAt: saved!.updatedAt });
+
+    return response.json({ updatedAt: saved!.updatedAt });
   } catch (error) {
     console.error("PUT state error:", error);
-    response.status(400).json({
+
+    return response.status(500).json({
       message: error instanceof Error ? error.message : "Gagal menyimpan data.",
     });
   }
